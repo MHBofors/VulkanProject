@@ -52,6 +52,24 @@ void createInstance(Application *pApp)
     {
         printf("failed to create instance!\n");
     }
+
+    uint32_t extensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(NULL, &extensionCount,
+    NULL);
+
+    VkExtensionProperties *pExtensions = malloc(sizeof(VkExtensionProperties) * extensionCount);
+    vkEnumerateInstanceExtensionProperties(NULL, &extensionCount,
+    pExtensions);
+
+    printf("Available extensions:\n");
+    for(int i = 0; i < extensionCount; i++)
+    {
+        printf("\t%s\n", pExtensions[i].extensionName);
+    }
+
+    //Add code checking if all extensions in glfwGetRequiredExtensions is available
+    
+    free(pExtensions);
 }
 
 void initVulkan(Application *pApp)
@@ -70,6 +88,8 @@ void mainLoop(Application *pApp)
 void cleanup(Application *pApp)
 {
     vkDestroyInstance(pApp->instance, NULL);
+
+
     glfwDestroyWindow(pApp->window);
 
     glfwTerminate();
