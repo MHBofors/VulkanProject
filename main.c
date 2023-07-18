@@ -4,9 +4,19 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
+
+const uint32_t validationLayerCount = 1;
+const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
+
+#ifdef NDEBUG
+    const uint32_t enableValidationLayers = 0;
+#else
+    const uint32_t enableValidationLayers = 1;
+#endif
 
 typedef struct
 {
@@ -46,6 +56,16 @@ void createInstance(Application *pApp)
         .enabledLayerCount = 0
     };
 
+    if(enableValidationLayers)
+    {
+        createInfo.enabledLayerCount = validationLayerCount;
+        createInfo.ppEnabledLayerNames = validationLayers;
+    }
+    else
+    {
+        createInfo.enabledExtensionCount = 0;
+    }
+
     VkResult result = vkCreateInstance(&createInfo, NULL, &pApp->instance);
 
     if (vkCreateInstance(&createInfo, NULL, &pApp->instance) != VK_SUCCESS)
@@ -61,19 +81,86 @@ void createInstance(Application *pApp)
     vkEnumerateInstanceExtensionProperties(NULL, &extensionCount,
     pExtensions);
 
+    
     printf("Available extensions:\n");
     for(int i = 0; i < extensionCount; i++)
     {
         printf("\t%s\n", pExtensions[i].extensionName);
     }
 
-    //Add code checking if all extensions in glfwGetRequiredExtensions is available
+    //Extension support checking
+    printf("\nRequired extension support:\n");
+    uint32_t unsupportedExtensionCount = 0;
+
+    for(int i = 0; i < glfwExtensionCount; i++)
+    {
+        int check = 0;
+        for(int j = 0; j < extensionCount; j++)
+        {
+            if(strcmp(pExtensions[j].extensionName, createInfo.ppEnabledExtensionNames[i]))
+            {
+                check = 1;
+                break;
+            }
+        }
+        
+        if(check)
+        {
+            printf("\t%s - supported\n", createInfo.ppEnabledExtensionNames[i]);
+        }
+        else
+        {
+            unsupportedExtensionCount++;
+            printf("\t%s - not supported\n", createInfo.ppEnabledExtensionNames[i]);
+        }
+    }
     
+    if(unsupportedExtensionCount)
+    {
+        printf("%d unsupported extensions", unsupportedExtensionCount);
+        exit(1);
+    }
+
     free(pExtensions);
+}
+
+uint32_t checkValidationLayerSupport()
+{
+    uint32_t layerCount;
+    vkEnumerateInstanceLayerProperties(&layerCount, NULL);
+
+    VkLayerProperties *pAvailableLayers = malloc(sizeof(VkLayerProperties) * layerCount);
+    vkEnumerateInstanceLayerProperties(&layerCount, pAvailableLayers);
+
+    for(int i = 0; i < validationLayerCount; i++)
+    {
+        uint32_t check = 0;
+        for(int j = 0; j < layerCount; j++)
+        {
+            if(strcmp(pAvailableLayers[j].layerName, validationLayers[i]))
+            {
+                check = 1;
+                break;
+            }
+        }
+        
+        if(!check)
+        {
+            return 0;
+        }
+    }
+
+    free(pAvailableLayers);
+    return 1;
 }
 
 void initVulkan(Application *pApp)
 {
+    if(enableValidationLayers && !checkValidationLayerSupport())
+    {
+        printf("validation layers requested, but not available");
+        exit(1);
+    }
     createInstance(pApp);
 }
 
@@ -88,7 +175,6 @@ void mainLoop(Application *pApp)
 void cleanup(Application *pApp)
 {
     vkDestroyInstance(pApp->instance, NULL);
-
 
     glfwDestroyWindow(pApp->window);
 
