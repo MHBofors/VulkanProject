@@ -29,13 +29,16 @@ typedef struct
     VkPhysicalDevice physicalDevice;
     VkDevice device;
     VkQueue graphicsQueue;
+    VkQueue presentQueue;
+    VkSurfaceKHR surface;
 }Application;
 
-enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1};
+enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
 
 typedef struct {
     uint32_t flagBits;
     uint32_t graphicsFamily;
+    uint32_t presentFamily;
 }QueueFamilyIndices;
 
 void initWindow(Application *pApp);
@@ -48,10 +51,10 @@ uint32_t checkValidationLayerSupport();
 void setupDebugMessenger(Application *pApp);
 void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT *createInfo);
 void pickPhysicalDevice(Application *pApp);
-uint32_t isDeviceSuitable(VkPhysicalDevice device);
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
+uint32_t isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
 void createLogicalDevice(Application *pApp);
-
+void createSurface(Application *pApp);
 
 void initWindow(Application *pApp)
 {
@@ -269,7 +272,7 @@ void pickPhysicalDevice(Application *pApp)
 
     for(int i = 0; i < deviceCount; i++)
     {
-        if(isDeviceSuitable(devices[i]))
+        if(isDeviceSuitable(devices[i], pApp->surface))
         {
             pApp->physicalDevice = devices[i];
             break;
@@ -283,19 +286,24 @@ void pickPhysicalDevice(Application *pApp)
     }
 }
 
-uint32_t isDeviceSuitable(VkPhysicalDevice device)
+uint32_t isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceFeatures deviceFeatures;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
     vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
-    QueueFamilyIndices indices = findQueueFamilies(device);
+    QueueFamilyIndices indices = findQueueFamilies(device, surface);
 
-    return deviceFeatures.geometryShader && indices.flagBits & GRAPHICS_FAMILY_BIT;
+    return deviceFeatures.geometryShader && (indices.flagBits & GRAPHICS_FAMILY_BIT);
 }
 
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
+uint32_t isComplete(QueueFamilyIndices indices)
+{
+    return (indices.flagBits & GRAPHICS_FAMILY_BIT) && (indices.flagBits & PRESENT_FAMILY_BIT);
+}
+
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
     QueueFamilyIndices indices;
 
@@ -307,19 +315,33 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
 
     for(int i = 0; i < queueFamilyCount; i++)
     {
-        if(queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+        
+        if((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
         {
             indices.graphicsFamily = i;
             indices.flagBits |= GRAPHICS_FAMILY_BIT;
+        }
+
+        VkBool32 presentSupport = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+        if(presentSupport)
+        {
+            indices.presentFamily = i;
+            indices.flagBits |= PRESENT_FAMILY_BIT;
+        }
+
+        if(isComplete(indices))
+        {
             break;
         }
     }
+    
     return indices;
 }
 
 void createLogicalDevice(Application *pApp)
 {
-    QueueFamilyIndices indices = findQueueFamilies(pApp->physicalDevice);
+    QueueFamilyIndices indices = findQueueFamilies(pApp->physicalDevice, pApp->surface);
     float queuePriority = 1.0f;
     VkDeviceQueueCreateInfo queueCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -358,6 +380,15 @@ void createLogicalDevice(Application *pApp)
     vkGetDeviceQueue(pApp->device, indices.graphicsFamily, 0, &pApp->graphicsQueue);
 }
 
+void createSurface(Application *pApp)
+{
+    if (glfwCreateWindowSurface(pApp->instance, pApp->window, NULL, &pApp->surface) != VK_SUCCESS) 
+    {
+        printf("failed to create window surface!");
+        exit(1);
+    }
+}
+
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
@@ -367,6 +398,7 @@ void initVulkan(Application *pApp)
     }
     createInstance(pApp);
     setupDebugMessenger(pApp);
+    createSurface(pApp);
     pickPhysicalDevice(pApp);
     createLogicalDevice(pApp);
 }
@@ -386,6 +418,8 @@ void cleanup(Application *pApp)
     if (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(pApp->instance, pApp->debugMessenger, NULL);
     }
+
+    vkDestroySurfaceKHR(pApp->instance, pApp->surface, NULL);
 
     vkDestroyInstance(pApp->instance, NULL);
 
@@ -407,7 +441,6 @@ int main()
     Application app = {0};
 
     run(&app);
-
 
     return 0;
 }
