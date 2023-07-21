@@ -23,17 +23,12 @@ const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
 #ifndef __APPLE__
     const int enableCompatibilityBit = 0;
+    #define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME ""
+    #define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0
 #else
     const int enableCompatibilityBit = 1;
 #endif
 
-#ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-    #define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME ""
-#endif
-
-#ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
-    #define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0
-#endif
 typedef struct
 {
 
@@ -93,6 +88,7 @@ void createInstance(Application *pApp)
     uint32_t glfwExtensionCount = 0;
     const char **glfwExtensions;
     glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    
     
     
     
@@ -370,12 +366,26 @@ void createLogicalDevice(Application *pApp)
 {
     QueueFamilyIndices indices = findQueueFamilies(pApp->physicalDevice, pApp->surface);
     float queuePriority = 1.0f;
-    VkDeviceQueueCreateInfo queueCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .queueFamilyIndex = indices.graphicsFamily,
-        .queueCount = 1,
-        .pQueuePriorities = &queuePriority
-    };
+    uint32Tree *queueSet = allocTree();
+    insert(queueSet, indices.graphicsFamily);
+    insert(queueSet, indices.presentFamily);
+    
+    uint32_t queueCount = queueSet->size;
+    
+    VkDeviceQueueCreateInfo queueCreateInfos[queueCount];
+    uint32_t uniqueIndices[queueCount];
+    toArray(queueSet, uniqueIndices);
+    
+    for (int i = 0; i < queueCount; i++) {
+        VkDeviceQueueCreateInfo queueCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = uniqueIndices[i],
+            .queueCount = 1,
+            .pQueuePriorities = &queuePriority
+        };
+        queueCreateInfos[i] = queueCreateInfo;
+    }
+
 
     VkPhysicalDeviceFeatures deviceFeatures = {
         0
@@ -383,8 +393,8 @@ void createLogicalDevice(Application *pApp)
 
     VkDeviceCreateInfo createInfo = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pQueueCreateInfos = &queueCreateInfo,
-        .queueCreateInfoCount = 1,
+        .pQueueCreateInfos = queueCreateInfos,
+        .queueCreateInfoCount = queueCount,
         .pEnabledFeatures = &deviceFeatures,
         .enabledExtensionCount = 0
     };
@@ -412,6 +422,7 @@ void createLogicalDevice(Application *pApp)
     }
 
     vkGetDeviceQueue(pApp->device, indices.graphicsFamily, 0, &pApp->graphicsQueue);
+    vkGetDeviceQueue(pApp->device, indices.presentFamily, 0, &pApp->presentQueue);
 }
 
 void createSurface(Application *pApp)
