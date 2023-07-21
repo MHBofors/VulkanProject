@@ -32,7 +32,20 @@ typedef struct
     GLFWwindow* window;
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
+    VkPhysicalDevice physicalDevice;
+    VkDevice device;
+    VkQueue graphicsQueue;
+    VkQueue presentQueue;
+    VkSurfaceKHR surface;
 }Application;
+
+enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
+
+typedef struct {
+    uint32_t flagBits;
+    uint32_t graphicsFamily;
+    uint32_t presentFamily;
+}QueueFamilyIndices;
 
 void initWindow(Application *pApp);
 void initVulkan(Application *pApp);
@@ -43,6 +56,11 @@ void createInstance(Application *pApp);
 uint32_t checkValidationLayerSupport(void);
 void setupDebugMessenger(Application *pApp);
 void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT *createInfo);
+void pickPhysicalDevice(Application *pApp);
+uint32_t isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface);
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
+void createLogicalDevice(Application *pApp);
+void createSurface(Application *pApp);
 
 void initWindow(Application *pApp)
 {
@@ -52,7 +70,6 @@ void initWindow(Application *pApp)
 
     pApp->window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", NULL, NULL);
 }
-
 
 void createInstance(Application *pApp)
 {
@@ -254,6 +271,141 @@ void setupDebugMessenger(Application *pApp)
     }
 }
 
+void pickPhysicalDevice(Application *pApp)
+{
+    pApp->physicalDevice = VK_NULL_HANDLE;
+
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(pApp->instance, &deviceCount, NULL);
+
+    if(deviceCount == 0)
+    {
+        printf("Failed to find GPUs with Vulkan support");
+        exit(1);
+    }
+
+    VkPhysicalDevice devices[deviceCount];
+    vkEnumeratePhysicalDevices(pApp->instance, &deviceCount, devices);
+
+    for(int i = 0; i < deviceCount; i++)
+    {
+        if(isDeviceSuitable(devices[i], pApp->surface))
+        {
+            pApp->physicalDevice = devices[i];
+            break;
+        }
+    }
+
+    if(pApp->physicalDevice == VK_NULL_HANDLE)
+    {
+        printf("Failed to find suitable GPU");
+        exit(1);
+    }
+}
+
+uint32_t isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface)
+{
+    VkPhysicalDeviceProperties deviceProperties;
+    VkPhysicalDeviceFeatures deviceFeatures;
+    vkGetPhysicalDeviceProperties(device, &deviceProperties);
+    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+    QueueFamilyIndices indices = findQueueFamilies(device, surface);
+
+    return deviceFeatures.geometryShader && (indices.flagBits & GRAPHICS_FAMILY_BIT);
+}
+
+uint32_t isComplete(QueueFamilyIndices indices)
+{
+    return (indices.flagBits & GRAPHICS_FAMILY_BIT) && (indices.flagBits & PRESENT_FAMILY_BIT);
+}
+
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)
+{
+    QueueFamilyIndices indices;
+
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+    VkQueueFamilyProperties queueFamilies[queueFamilyCount];
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies);
+
+    for(int i = 0; i < queueFamilyCount; i++)
+    {
+        
+        if((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+        {
+            indices.graphicsFamily = i;
+            indices.flagBits |= GRAPHICS_FAMILY_BIT;
+        }
+
+        VkBool32 presentSupport = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+        if(presentSupport)
+        {
+            indices.presentFamily = i;
+            indices.flagBits |= PRESENT_FAMILY_BIT;
+        }
+
+        if(isComplete(indices))
+        {
+            break;
+        }
+    }
+    
+    return indices;
+}
+
+void createLogicalDevice(Application *pApp)
+{
+    QueueFamilyIndices indices = findQueueFamilies(pApp->physicalDevice, pApp->surface);
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queueCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = indices.graphicsFamily,
+        .queueCount = 1,
+        .pQueuePriorities = &queuePriority
+    };
+
+    VkPhysicalDeviceFeatures deviceFeatures = {
+        0
+    };
+
+    VkDeviceCreateInfo createInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pQueueCreateInfos = &queueCreateInfo,
+        .queueCreateInfoCount = 1,
+        .pEnabledFeatures = &deviceFeatures,
+        .enabledExtensionCount = 0
+    };
+
+    if (enableValidationLayers) 
+    {
+        createInfo.enabledLayerCount = validationLayerCount;
+        createInfo.ppEnabledLayerNames = validationLayers;
+    } 
+    else 
+    {
+        createInfo.enabledLayerCount = 0;
+    }
+
+    if (vkCreateDevice(pApp->physicalDevice, &createInfo, NULL, &pApp->device) != VK_SUCCESS) {
+        printf("failed to create logical device!");
+        exit(1);
+    }
+
+    vkGetDeviceQueue(pApp->device, indices.graphicsFamily, 0, &pApp->graphicsQueue);
+}
+
+void createSurface(Application *pApp)
+{
+    if (glfwCreateWindowSurface(pApp->instance, pApp->window, NULL, &pApp->surface) != VK_SUCCESS) 
+    {
+        printf("failed to create window surface!");
+        exit(1);
+    }
+}
+
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
@@ -263,6 +415,9 @@ void initVulkan(Application *pApp)
     }
     createInstance(pApp);
     setupDebugMessenger(pApp);
+    createSurface(pApp);
+    pickPhysicalDevice(pApp);
+    createLogicalDevice(pApp);
 }
 
 void mainLoop(Application *pApp)
@@ -275,9 +430,13 @@ void mainLoop(Application *pApp)
 
 void cleanup(Application *pApp)
 {
+    vkDestroyDevice(pApp->device, NULL);
+
     if (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(pApp->instance, pApp->debugMessenger, NULL);
     }
+
+    vkDestroySurfaceKHR(pApp->instance, pApp->surface, NULL);
 
     vkDestroyInstance(pApp->instance, NULL);
 
@@ -303,24 +462,6 @@ int main(void)
     Application app = {0};
 
     run(&app);
-    
-    uint32Tree *tree = allocTree();
-    
-    insert(tree, 2);
-    insert(tree, 1);
-    insert(tree, 4);
-    insert(tree, 6);
-    insert(tree, 1);
-    
-    uint32_t size = tree->size;
-    
-    uint32_t array[size];
-    
-    
-    toArray(tree, array);
-    for (int i = 0; i < size; i++) {
-        printf("%d ",array[i]);
-    }
-    
+
     return 0;
 }
