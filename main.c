@@ -27,8 +27,16 @@ const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
     const int enableCompatibilityBit = 1;
 #endif
 
+#ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+    #define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME ""
+#endif
+
+#ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
+    #define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0
+#endif
 typedef struct
 {
+
     GLFWwindow* window;
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
@@ -467,6 +475,10 @@ int main(void)
     if(enableCompatibilityBit)
     {
         printf("Compatibility bit enabled\n");
+    }
+    else
+    {
+        printf("Compatibility bit NOT enabled\n");
     }
     Application app = {0};
 
