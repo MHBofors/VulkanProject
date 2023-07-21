@@ -88,7 +88,7 @@ void createInstance(Application *pApp)
     
     
     
-    const char *debugExtensions[glfwExtensionCount + enableValidationLayers + enableCompatibilityBit];
+    const char *debugExtensions[glfwExtensionCount + enableValidationLayers + 2 * enableCompatibilityBit];
 
     for(int i = 0; i < glfwExtensionCount; i++)
     {
@@ -104,6 +104,8 @@ void createInstance(Application *pApp)
     if(enableCompatibilityBit)
     {
         debugExtensions[glfwExtensionCount] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+        glfwExtensionCount++;
+        debugExtensions[glfwExtensionCount] = "VK_KHR_get_physical_device_properties2";
         glfwExtensionCount++;
     }
 
@@ -135,8 +137,6 @@ void createInstance(Application *pApp)
     {
         createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     }
-    
-    VkResult result = vkCreateInstance(&createInfo, NULL, &pApp->instance);
 
     if (vkCreateInstance(&createInfo, NULL, &pApp->instance) != VK_SUCCESS)
     {
@@ -312,7 +312,7 @@ uint32_t isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface)
 
     QueueFamilyIndices indices = findQueueFamilies(device, surface);
 
-    return deviceFeatures.geometryShader && (indices.flagBits & GRAPHICS_FAMILY_BIT);
+    return indices.flagBits & GRAPHICS_FAMILY_BIT;
 }
 
 uint32_t isComplete(QueueFamilyIndices indices)
@@ -323,6 +323,8 @@ uint32_t isComplete(QueueFamilyIndices indices)
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
     QueueFamilyIndices indices;
+    
+    indices.flagBits = 0;
 
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
@@ -378,7 +380,7 @@ void createLogicalDevice(Application *pApp)
         .pEnabledFeatures = &deviceFeatures,
         .enabledExtensionCount = 0
     };
-
+    
     if (enableValidationLayers) 
     {
         createInfo.enabledLayerCount = validationLayerCount;
@@ -389,6 +391,13 @@ void createLogicalDevice(Application *pApp)
         createInfo.enabledLayerCount = 0;
     }
 
+    if(enableCompatibilityBit)
+    {
+        const char *deviceExtension = "VK_KHR_portability_subset";
+        createInfo.ppEnabledExtensionNames = &deviceExtension;
+        createInfo.enabledExtensionCount = 1;
+    }
+    
     if (vkCreateDevice(pApp->physicalDevice, &createInfo, NULL, &pApp->device) != VK_SUCCESS) {
         printf("failed to create logical device!");
         exit(1);
