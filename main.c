@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
+#include "utils.h"
 
 
 const uint32_t WIDTH = 800;
@@ -19,6 +19,12 @@ const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
     const uint32_t enableValidationLayers = 0;
 #else
     const uint32_t enableValidationLayers = 1;
+#endif
+
+#ifndef __APPLE__
+    const int enableCompatibilityBit = 0;
+#else
+    const int enableCompatibilityBit = 1;
 #endif
 
 typedef struct
@@ -47,7 +53,7 @@ void mainLoop(Application *pApp);
 void cleanup(Application *pApp);
 void run(Application *pApp);
 void createInstance(Application *pApp);
-uint32_t checkValidationLayerSupport();
+uint32_t checkValidationLayerSupport(void);
 void setupDebugMessenger(Application *pApp);
 void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT *createInfo);
 void pickPhysicalDevice(Application *pApp);
@@ -80,7 +86,9 @@ void createInstance(Application *pApp)
     const char **glfwExtensions;
     glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
     
-    const char *debugExtensions[glfwExtensionCount + 1];
+    
+    
+    const char *debugExtensions[glfwExtensionCount + enableValidationLayers + 2 * enableCompatibilityBit];
 
     for(int i = 0; i < glfwExtensionCount; i++)
     {
@@ -92,16 +100,23 @@ void createInstance(Application *pApp)
         debugExtensions[glfwExtensionCount] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
         glfwExtensionCount++;
     }
-
+    
+    if(enableCompatibilityBit)
+    {
+        debugExtensions[glfwExtensionCount] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+        glfwExtensionCount++;
+        debugExtensions[glfwExtensionCount] = "VK_KHR_get_physical_device_properties2";
+        glfwExtensionCount++;
+    }
 
     VkInstanceCreateInfo createInfo = {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo = &appInfo,
         .enabledExtensionCount = glfwExtensionCount,
         .ppEnabledExtensionNames = debugExtensions,
-        .enabledLayerCount = 0
+        .enabledLayerCount = enableValidationLayers
     };
-
+    
     VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {0};
     if(enableValidationLayers)
     {
@@ -117,8 +132,11 @@ void createInstance(Application *pApp)
 
         createInfo.pNext = NULL;
     }
-
-    VkResult result = vkCreateInstance(&createInfo, NULL, &pApp->instance);
+    
+    if(enableCompatibilityBit)
+    {
+        createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    }
 
     if (vkCreateInstance(&createInfo, NULL, &pApp->instance) != VK_SUCCESS)
     {
@@ -129,7 +147,7 @@ void createInstance(Application *pApp)
     vkEnumerateInstanceExtensionProperties(NULL, &extensionCount,
     NULL);
 
-    VkExtensionProperties *pExtensions = malloc(sizeof(VkExtensionProperties) * extensionCount);
+    VkExtensionProperties pExtensions[extensionCount];
     vkEnumerateInstanceExtensionProperties(NULL, &extensionCount,
     pExtensions);
 
@@ -173,10 +191,9 @@ void createInstance(Application *pApp)
         exit(1);
     }
 
-    free(pExtensions);
 }
 
-uint32_t checkValidationLayerSupport()
+uint32_t checkValidationLayerSupport(void)
 {
     uint32_t layerCount;
     vkEnumerateInstanceLayerProperties(&layerCount, NULL);
@@ -295,7 +312,7 @@ uint32_t isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface)
 
     QueueFamilyIndices indices = findQueueFamilies(device, surface);
 
-    return deviceFeatures.geometryShader && (indices.flagBits & GRAPHICS_FAMILY_BIT);
+    return indices.flagBits & GRAPHICS_FAMILY_BIT;
 }
 
 uint32_t isComplete(QueueFamilyIndices indices)
@@ -306,6 +323,8 @@ uint32_t isComplete(QueueFamilyIndices indices)
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
     QueueFamilyIndices indices;
+    
+    indices.flagBits = 0;
 
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
@@ -361,7 +380,7 @@ void createLogicalDevice(Application *pApp)
         .pEnabledFeatures = &deviceFeatures,
         .enabledExtensionCount = 0
     };
-
+    
     if (enableValidationLayers) 
     {
         createInfo.enabledLayerCount = validationLayerCount;
@@ -372,6 +391,13 @@ void createLogicalDevice(Application *pApp)
         createInfo.enabledLayerCount = 0;
     }
 
+    if(enableCompatibilityBit)
+    {
+        const char *deviceExtension = "VK_KHR_portability_subset";
+        createInfo.ppEnabledExtensionNames = &deviceExtension;
+        createInfo.enabledExtensionCount = 1;
+    }
+    
     if (vkCreateDevice(pApp->physicalDevice, &createInfo, NULL, &pApp->device) != VK_SUCCESS) {
         printf("failed to create logical device!");
         exit(1);
@@ -436,8 +462,12 @@ void run(Application *pApp)
     cleanup(pApp);
 }
 
-int main()
+int main(void)
 {
+    if(enableCompatibilityBit)
+    {
+        printf("Compatibility bit enabled\n");
+    }
     Application app = {0};
 
     run(&app);
