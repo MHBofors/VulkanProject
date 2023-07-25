@@ -164,3 +164,22 @@ void queueToArray(uint32Queue *queue, uint32_t *array)
     }
     free(queue);
 }
+
+uint32_t boundU32(uint32_t value, uint32_t lower, uint32_t upper)
+{
+    if(value < lower)
+    {
+        return lower;
+    }
+    else
+    {
+        if(upper < value)
+        {
+            return upper;
+        }
+        else
+        {
+            return value;
+        }
+    }
+}
