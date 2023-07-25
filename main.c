@@ -7,6 +7,7 @@
 #include <string.h>
 #include "utils.h"
 
+#define NDEBUG
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -150,7 +151,7 @@ void createInstance(Application *pApp)
     }
     else
     {
-        createInfo.enabledExtensionCount = 0;
+        createInfo.enabledLayerCount = 0;
 
         createInfo.pNext = NULL;
     }
