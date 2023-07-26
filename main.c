@@ -32,7 +32,7 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 typedef struct
 {
-    GLFWwindow* window;
+    GLFWwindow *window;
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
     VkPhysicalDevice physicalDevice;
@@ -41,6 +41,11 @@ typedef struct
     VkQueue presentQueue;
     VkSurfaceKHR surface;
     VkSwapchainKHR swapChain;
+    uint32_t imageCount;
+    VkImage *swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+    VkImageView *swapChainImageViews;
 } Application;
 
 enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
@@ -80,6 +85,7 @@ VkSurfaceFormatKHR chooseSwapSurfaceFormat(VkPhysicalDevice device, VkSurfaceKHR
 VkPresentModeKHR chooseSwapPresentMode(SwapChainSupportDetails *details);
 VkExtent2D chooseSwapExtent(VkSurfaceCapabilitiesKHR *capabilities, GLFWwindow *window);
 void createSwapChain(Application *pApp);
+void createImageViews(Application *pApp);
 
 
 void initWindow(Application *pApp)
@@ -622,6 +628,43 @@ void createSwapChain(Application *pApp) {
         printf("failed to create swap chain!");
         exit(1);
     }
+    
+    pApp->imageCount = imageCount;
+    
+    vkGetSwapchainImagesKHR(pApp->device, pApp->swapChain, &pApp->imageCount, NULL);
+    pApp->swapChainImages = malloc(pApp->imageCount * sizeof(VkImage));
+    vkGetSwapchainImagesKHR(pApp->device, pApp->swapChain, &pApp->imageCount, pApp->swapChainImages);
+    
+    pApp->swapChainImageFormat = surfaceFormat.format;
+    pApp->swapChainExtent = extent;
+}
+
+void createImageViews(Application *pApp)
+{
+    pApp->swapChainImageViews = malloc(pApp->imageCount * sizeof(VkImageView));
+    for (size_t i = 0; i < pApp->imageCount; i++)
+    {
+        VkImageViewCreateInfo createInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = pApp->swapChainImages[i],
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,//Determines how data will be interpreted, whether images should be treated as 1-,2-, or 3d images
+            .format = pApp->swapChainImageFormat,
+            .components.r = VK_COMPONENT_SWIZZLE_IDENTITY,//Allows you to "swizzle" colors arount
+            .components.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .components.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .components.a = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,//Determines the purpose of the image, and which part should be accessed
+            .subresourceRange.baseMipLevel = 0,
+            .subresourceRange.levelCount = 1,
+            .subresourceRange.baseArrayLayer = 0,
+            .subresourceRange.layerCount = 1
+        };
+        
+        if (vkCreateImageView(pApp->device, &createInfo, NULL, &pApp->swapChainImageViews[i]) != VK_SUCCESS) {
+            printf("failed to create image views!");
+            exit(1);
+        }
+    }
 }
 
 void initVulkan(Application *pApp)
@@ -637,6 +680,7 @@ void initVulkan(Application *pApp)
     pickPhysicalDevice(pApp);
     createLogicalDevice(pApp);
     createSwapChain(pApp);
+    createImageViews(pApp);
 }
 
 void mainLoop(Application *pApp)
@@ -649,7 +693,14 @@ void mainLoop(Application *pApp)
 
 void cleanup(Application *pApp)
 {
+    for(int i = 0; i < pApp->imageCount; i++)
+    {
+        vkDestroyImageView(pApp->device, pApp->swapChainImageViews[i], NULL);
+    }
+    free(pApp->swapChainImageViews);
+    
     vkDestroySwapchainKHR(pApp->device, pApp->swapChain, NULL);
+    free(pApp->swapChainImages);
     
     vkDestroyDevice(pApp->device, NULL);
 
