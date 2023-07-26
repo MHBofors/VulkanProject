@@ -86,7 +86,7 @@ VkPresentModeKHR chooseSwapPresentMode(SwapChainSupportDetails *details);
 VkExtent2D chooseSwapExtent(VkSurfaceCapabilitiesKHR *capabilities, GLFWwindow *window);
 void createSwapChain(Application *pApp);
 void createImageViews(Application *pApp);
-
+void createGraphicsPipeline(Application *pApp);
 
 void initWindow(Application *pApp)
 {
@@ -667,6 +667,11 @@ void createImageViews(Application *pApp)
     }
 }
 
+void createGraphicsPipeline(Application *pApp)
+{
+    
+}
+
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
@@ -681,6 +686,7 @@ void initVulkan(Application *pApp)
     createLogicalDevice(pApp);
     createSwapChain(pApp);
     createImageViews(pApp);
+    createGraphicsPipeline(pApp);
 }
 
 void mainLoop(Application *pApp)
