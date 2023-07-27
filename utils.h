@@ -59,4 +59,6 @@ void queueToArray(uint32Queue *queue, uint32_t array[queue->size]);
 
 uint32_t boundU32(uint32_t value, uint32_t lower, uint32_t upper);
 
+char *readFile(const char *filename);
+
 #endif /* utils_h */

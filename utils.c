@@ -183,3 +183,26 @@ uint32_t boundU32(uint32_t value, uint32_t lower, uint32_t upper)
         }
     }
 }
+
+char *readFile(const char *fileName)
+{
+    FILE *pFile = fopen(fileName, "rb");
+    
+    if(pFile == NULL)
+    {
+        printf("Failed to open file: %s!", fileName);
+        exit(1);
+    }
+
+    size_t fileSize;
+    
+    fseek(pFile, 0L, SEEK_END);
+    fileSize = ftell(pFile);
+    fseek(pFile, 0L, SEEK_SET);
+    
+    char *buffer = malloc(fileSize * sizeof(pFile));
+    fread(buffer, fileSize, sizeof(char), pFile);
+    fclose(pFile);
+    
+    return buffer;
+}
