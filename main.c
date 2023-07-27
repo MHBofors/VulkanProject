@@ -1,4 +1,4 @@
-#include <vulkan/vulkan.h>
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 
@@ -24,8 +24,6 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 #ifndef __APPLE__
     const uint32_t enableCompatibilityBit = 0;
-    #define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME ""
-    #define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0
 #else
     const uint32_t enableCompatibilityBit = 1;
 #endif
