@@ -100,6 +100,7 @@ void createFramebuffers(Application *pApp);
 void createCommandPool(Application *pApp);
 void createCommandBuffer(Application *pApp);
 void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint32_t imageIndex);
+void drawFrame(Application *pApp);
 
 
 void initWindow(Application *pApp)
@@ -1017,6 +1018,11 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     }
 }
 
+void drawFrame(Application *pApp)
+{
+    
+}
+
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
@@ -1044,6 +1050,7 @@ void mainLoop(Application *pApp)
     while(!glfwWindowShouldClose(pApp->window))
     {
         glfwPollEvents();
+        drawFrame(pApp);
     }
 }
 
