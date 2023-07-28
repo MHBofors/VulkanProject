@@ -99,7 +99,7 @@ void createRenderPass(Application *pApp);
 void createFramebuffers(Application *pApp);
 void createCommandPool(Application *pApp);
 void createCommandBuffer(Application *pApp);
-
+void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint32_t imageIndex);
 
 
 void initWindow(Application *pApp)
@@ -915,6 +915,7 @@ void createFramebuffers(Application *pApp)
         VkImageView attachments = pApp->swapChainImageViews[i];
         VkFramebufferCreateInfo framebufferInfo = {
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = pApp->renderPass,
             .attachmentCount = 1,
             .pAttachments = &attachments,
             .width = pApp->swapChainExtent.width,
@@ -959,6 +960,63 @@ void createCommandBuffer(Application *pApp)
     }
 }
 
+void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint32_t imageIndex)
+{
+    VkCommandBufferBeginInfo beginInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = 0,//Specifies how the command buffer will be used
+        .pInheritanceInfo = NULL//Specifies which state to inherit from primary calling command buffer
+    };
+    
+    if(vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        printf("Failed to begin recording command buffer");
+        exit(1);
+    }
+    
+    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    
+    VkRenderPassBeginInfo renderPassInfo = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = pApp->renderPass,
+        .framebuffer = pApp->swapChainFramebuffers[imageIndex],
+        .renderArea.offset = {0,0},//Specifies the size of the render area
+        .renderArea.extent = pApp->swapChainExtent,
+        .clearValueCount = 1,//Specifies the clear values for the attachment clear operation to use
+        .pClearValues = &clearColor
+    };
+    
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pApp->graphicsPipeline);
+    
+    VkViewport viewport = {
+        .x = 0.0f,
+        .y = 0.0f,
+        .width = (float)pApp->swapChainExtent.width,
+        .height = (float)pApp->swapChainExtent.height,
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f
+    };
+    
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    
+    VkRect2D scissor = {
+        .offset = {0,0},
+        .extent = pApp->swapChainExtent
+    };
+    
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    
+    vkCmdEndRenderPass(commandBuffer);
+    
+    if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        printf("Failed to record command buffer!");
+        exit(1);
+    }
+}
+
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
@@ -993,14 +1051,14 @@ void cleanup(Application *pApp)
 {
     vkDestroyCommandPool(pApp->device, pApp->commandPool, NULL);
     
-    vkDestroyPipeline(pApp->device, pApp->graphicsPipeline, NULL);
-    vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
-    
     for(int i = 0; i < pApp->imageCount; i++)
     {
         vkDestroyFramebuffer(pApp->device, pApp->swapChainFramebuffers[i], NULL);
     }
-    free(pApp->swapChainImageViews);
+    free(pApp->swapChainFramebuffers);
+    
+    vkDestroyPipeline(pApp->device, pApp->graphicsPipeline, NULL);
+    vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
     
     vkDestroyRenderPass(pApp->device, pApp->renderPass, NULL);
     
