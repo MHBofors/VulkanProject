@@ -27,8 +27,6 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     const uint32_t enableCompatibilityBit = 0;
 #else
     const uint32_t enableCompatibilityBit = 1;
-    const char *vertexShader = "/Users/marhog/Documents/GitHub/VulkanProject/shaders/vert.spv";
-    const char *fragmentShader = "/Users/marhog/Documents/GitHub/VulkanProject/shaders/frag.spv";
 #endif
 
 typedef struct
@@ -53,6 +51,9 @@ typedef struct
     VkFramebuffer *swapChainFramebuffers;
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
+    VkSemaphore imageAvailableSemaphore;
+    VkSemaphore renderFinishedSemaphore;
+    VkFence inFlightFence;
 } Application;
 
 enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
@@ -101,7 +102,7 @@ void createCommandPool(Application *pApp);
 void createCommandBuffer(Application *pApp);
 void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint32_t imageIndex);
 void drawFrame(Application *pApp);
-
+void createSyncObjects(Application *pApp);
 
 void initWindow(Application *pApp)
 {
@@ -597,7 +598,8 @@ VkExtent2D chooseSwapExtent(VkSurfaceCapabilitiesKHR *capabilities, GLFWwindow *
     }
 }
 
-void createSwapChain(Application *pApp) {
+void createSwapChain(Application *pApp) 
+{
     SwapChainSupportDetails swapChainSupport = querySwapChainSupport(pApp->physicalDevice, pApp->surface);
 
     VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(pApp->physicalDevice, pApp->surface);
@@ -682,7 +684,6 @@ void createImageViews(Application *pApp)
     }
 }
 
-
 VkShaderModule createShaderModule(Application *pApp, char *shaderFile)
 {
     char *binary;
@@ -727,15 +728,28 @@ void createRenderPass(Application *pApp)
         .colorAttachmentCount = 1,
         .pColorAttachments = &colorAttachmentRef
     };
-    
+
+    VkSubpassDependency dependency = {
+        .srcSubpass = VK_SUBPASS_EXTERNAL,//Specifies the indices of the dependency in the dependent subpass
+        .dstSubpass = 0,
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,//Specifies the operations to wait for, and in which stage they occur
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,//Specifies the operations waiting for the previous operations, and in which stage they occur
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+    };
+
     VkRenderPassCreateInfo renderPassInfo = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .attachmentCount = 1,
         .pAttachments = &colorAttachment,
         .subpassCount = 1,
-        .pSubpasses = &subpass
+        .pSubpasses = &subpass,
+        .dependencyCount = 1,
+        .pDependencies = &dependency
     };
     
+    
+
     if (vkCreateRenderPass(pApp->device, &renderPassInfo, NULL, &pApp->renderPass) != VK_SUCCESS) {
         printf("Failed to create render pass!");
         exit(1);
@@ -1020,7 +1034,67 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
 
 void drawFrame(Application *pApp)
 {
+    vkWaitForFences(pApp->device, 1, &pApp->inFlightFence, VK_TRUE, UINT64_MAX);
+    vkResetFences(pApp->device, 1, &pApp->inFlightFence);
     
+    uint32_t imageIndex;
+    vkAcquireNextImageKHR(pApp->device, pApp->swapChain, UINT64_MAX, pApp->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    
+    vkResetCommandBuffer(pApp->commandBuffer, 0);
+    recordCommandBuffer(pApp->commandBuffer, pApp, imageIndex);
+
+    VkSemaphore waitSemaphores[] = {pApp->imageAvailableSemaphore};
+    VkSemaphore signalSemaphores[] = {pApp->renderFinishedSemaphore};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+
+    VkSubmitInfo submitInfo = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,//Specifies which semaphores to wait for, before execution
+        .pWaitSemaphores = waitSemaphores,
+        .pWaitDstStageMask = waitStages,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &pApp->commandBuffer,
+        .signalSemaphoreCount = 1,//Specifies which semaphores to signal, after execution
+        .pSignalSemaphores = signalSemaphores
+    };
+
+    if (vkQueueSubmit(pApp->graphicsQueue, 1, &submitInfo, pApp->inFlightFence) != VK_SUCCESS) {
+        printf("failed to submit draw command buffer!");
+        exit(1);
+    }
+
+    VkSwapchainKHR swapChains[] = {pApp->swapChain};
+    
+    VkPresentInfoKHR presentInfo = {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,//Specifies which semaphores to wait for before presentation can happen
+        .pWaitSemaphores = signalSemaphores,
+        .swapchainCount = 1,//Specifies which swap chains to present images to, as well as the index of the image for each swap chain
+        .pSwapchains = swapChains,
+        .pImageIndices = &imageIndex,
+        .pResults = NULL//Specifies an array of VK_RESULT, checking that presentation was successful for each swap chain
+    };
+
+    vkQueuePresentKHR(pApp->presentQueue, &presentInfo);
+}
+
+void createSyncObjects(Application *pApp)
+{
+    VkSemaphoreCreateInfo semaphoreInfo = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+    };
+
+    VkFenceCreateInfo fenceInfo = {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT
+    };
+
+    if(vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->imageAvailableSemaphore) != VK_SUCCESS ||
+    vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->renderFinishedSemaphore) != VK_SUCCESS ||
+    vkCreateFence(pApp->device, &fenceInfo, NULL, &pApp->inFlightFence) != VK_SUCCESS){
+        printf("Failed to create sync objects!");
+        exit(1);
+    }
 }
 
 void initVulkan(Application *pApp)
@@ -1043,6 +1117,7 @@ void initVulkan(Application *pApp)
     createFramebuffers(pApp);
     createCommandPool(pApp);
     createCommandBuffer(pApp);
+    createSyncObjects(pApp);
 }
 
 void mainLoop(Application *pApp)
@@ -1056,6 +1131,10 @@ void mainLoop(Application *pApp)
 
 void cleanup(Application *pApp)
 {
+    vkDestroySemaphore(pApp->device, pApp->imageAvailableSemaphore, NULL);
+    vkDestroySemaphore(pApp->device, pApp->renderFinishedSemaphore, NULL);
+    vkDestroyFence(pApp->device, pApp->inFlightFence, NULL);
+
     vkDestroyCommandPool(pApp->device, pApp->commandPool, NULL);
     
     for(int i = 0; i < pApp->imageCount; i++)
