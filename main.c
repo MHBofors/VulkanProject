@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
 #include "utils.h"
 
 const uint32_t WIDTH = 800;
@@ -26,6 +27,8 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     const uint32_t enableCompatibilityBit = 0;
 #else
     const uint32_t enableCompatibilityBit = 1;
+    const char *vertexShader = "/Users/marhog/Documents/GitHub/VulkanProject/shaders/vert.spv";
+    const char *fragmentShader = "/Users/marhog/Documents/GitHub/VulkanProject/shaders/frag.spv";
 #endif
 
 typedef struct
@@ -44,6 +47,12 @@ typedef struct
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
     VkImageView *swapChainImageViews;
+    VkRenderPass renderPass;
+    VkPipelineLayout pipelineLayout;
+    VkPipeline graphicsPipeline;
+    VkFramebuffer *swapChainFramebuffers;
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
 } Application;
 
 enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
@@ -84,7 +93,14 @@ VkPresentModeKHR chooseSwapPresentMode(SwapChainSupportDetails *details);
 VkExtent2D chooseSwapExtent(VkSurfaceCapabilitiesKHR *capabilities, GLFWwindow *window);
 void createSwapChain(Application *pApp);
 void createImageViews(Application *pApp);
+VkShaderModule createShaderModule(Application *pApp, char *shaderFile);
 void createGraphicsPipeline(Application *pApp);
+void createRenderPass(Application *pApp);
+void createFramebuffers(Application *pApp);
+void createCommandPool(Application *pApp);
+void createCommandBuffer(Application *pApp);
+
+
 
 void initWindow(Application *pApp)
 {
@@ -665,18 +681,292 @@ void createImageViews(Application *pApp)
     }
 }
 
+
+VkShaderModule createShaderModule(Application *pApp, char *shaderFile)
+{
+    char *binary;
+    
+    size_t codeSize = readFile(shaderFile, &binary);
+
+    VkShaderModuleCreateInfo createInfo = {
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = codeSize,
+        .pCode = (uint32_t*)binary//Probably not safe, and should be fixed
+    };
+    
+    VkShaderModule shaderModule;
+    if (vkCreateShaderModule(pApp->device, &createInfo, NULL, &shaderModule) != VK_SUCCESS) {
+        printf("Failed to create shader module!");
+        exit(1);
+    }
+    free(binary);
+    return shaderModule;
+}
+
+void createRenderPass(Application *pApp)
+{
+    VkAttachmentDescription colorAttachment = {
+        .format = pApp->swapChainImageFormat,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,//Specifies what to do with the data in the attachment before and after rendering
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+    };
+    
+    VkAttachmentReference colorAttachmentRef = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+    
+    VkSubpassDescription subpass = {
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &colorAttachmentRef
+    };
+    
+    VkRenderPassCreateInfo renderPassInfo = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &colorAttachment,
+        .subpassCount = 1,
+        .pSubpasses = &subpass
+    };
+    
+    if (vkCreateRenderPass(pApp->device, &renderPassInfo, NULL, &pApp->renderPass) != VK_SUCCESS) {
+        printf("Failed to create render pass!");
+        exit(1);
+    }
+}
+
 void createGraphicsPipeline(Application *pApp)
 {
+    VkShaderModule vertexModule = createShaderModule(pApp, "shaders/vert.spv");
+    VkShaderModule fragmentModule = createShaderModule(pApp, "shaders/frag.spv");
     
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+        .module = vertexModule,//Determines the module containing the code
+        .pName = "main",//Determines which function will invoke the shader
+        .pSpecializationInfo = NULL//Optional member specifying values for shader constants
+    };
+    
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = fragmentModule,
+        .pName = "main",
+        .pSpecializationInfo = NULL
+    };
+    
+    VkPipelineShaderStageCreateInfo shaderStages[2] = {vertShaderStageInfo, fragShaderStageInfo};
+    
+    uint32_t stateCount = 2;
+    VkDynamicState dynamicStates[stateCount];
+    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+    dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
+
+    //Specifies which part of the state will be dynamic
+    VkPipelineDynamicStateCreateInfo dynamicState = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = stateCount,
+        .pDynamicStates = dynamicStates
+    };
+    
+    //Specifies the bindings and attribute descriptions
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 0,
+        .pVertexBindingDescriptions = NULL, // Optional
+        .vertexAttributeDescriptionCount = 0,
+        .pVertexAttributeDescriptions = NULL
+    };
+    
+    //Specifies which type of geometry will be rendered
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE
+    };
+    
+    //Specifies which region of the framebuffer that will be rendered to
+    VkViewport viewport = {
+        .x = 0.0f,
+        .y = 0.0f,
+        .width = (float) pApp->swapChainExtent.width,
+        .height = (float) pApp->swapChainExtent.height,
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f
+    };
+    
+    //Specifies in which regions pixels will be stored in the framebuffer
+    VkRect2D scissor = {
+        .offset = {0, 0},
+        .extent = pApp->swapChainExtent
+    };
+
+    //Needs pointers to viewport and scissor if created statically
+    VkPipelineViewportStateCreateInfo viewportState = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .scissorCount = 1
+    };
+    
+    //Specifies how fragments are created from the geometry generated by the vertex shader
+    VkPipelineRasterizationStateCreateInfo rasterizer = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,//If enabled, fragments beyond the near and far plane are clamped to them
+        .rasterizerDiscardEnable = VK_FALSE,//If enabled, disables the rasterization stage
+        .polygonMode = VK_POLYGON_MODE_FILL,//Specifies how fragments are generated for geometry
+        .lineWidth = 1.0f,
+        .cullMode = VK_CULL_MODE_BACK_BIT,//Specifies which type of face culling to use
+        .frontFace = VK_FRONT_FACE_CLOCKWISE,//Specifies the vertex order for faces to be considered front-facing
+        .depthBiasEnable = VK_FALSE,//If enabled, can add depth values by adding a constant, or biasing them based on fragment slope
+        .depthBiasConstantFactor = 0.0f, // Optional
+        .depthBiasClamp = 0.0f, // Optional
+        .depthBiasSlopeFactor = 0.0f // Optional
+    };
+    
+    //Specifies how to use multisampling for anti-aliasing
+    VkPipelineMultisampleStateCreateInfo multisampling = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .sampleShadingEnable = VK_FALSE,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+        .minSampleShading = 1.0f, // Optional
+        .pSampleMask = NULL, // Optional
+        .alphaToCoverageEnable = VK_FALSE, // Optional
+        .alphaToOneEnable = VK_FALSE // Optional
+    };
+    
+    //Specifies the color blending configuration per attached framebuffer
+    VkPipelineColorBlendAttachmentState colorBlendAttachment = {
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        .blendEnable = VK_FALSE,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_ONE, // Optional
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO, // Optional
+        .colorBlendOp = VK_BLEND_OP_ADD, // Optional
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE, // Optional
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, // Optional
+        .alphaBlendOp = VK_BLEND_OP_ADD // Optional
+    };
+    
+    //Specifies the global color blending configuration
+    VkPipelineColorBlendStateCreateInfo colorBlending = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .logicOp = VK_LOGIC_OP_COPY, // Optional
+        .attachmentCount = 1,
+        .pAttachments = &colorBlendAttachment,
+        .blendConstants[0] = 0.0f, // Optional
+        .blendConstants[1] = 0.0f, // Optional
+        .blendConstants[2] = 0.0f, // Optional
+        .blendConstants[3] = 0.0f // Optional
+    };
+    
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0, // Optional
+        .pSetLayouts = NULL, // Optional
+        .pushConstantRangeCount = 0, // Optional
+        .pPushConstantRanges = NULL // Optional
+    };
+    
+    if (vkCreatePipelineLayout(pApp->device, &pipelineLayoutInfo, NULL, &pApp->pipelineLayout) != VK_SUCCESS)
+    {
+        printf("Failed to create pipeline layout!");
+        exit(1);
+    }
+    
+    VkGraphicsPipelineCreateInfo pipelineInfo = {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2,
+        .pStages = shaderStages,
+        .pVertexInputState = &vertexInputInfo,
+        .pInputAssemblyState = &inputAssembly,
+        .pViewportState = &viewportState,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState = &multisampling,
+        .pDepthStencilState = NULL,
+        .pColorBlendState = &colorBlending,
+        .pDynamicState = &dynamicState,
+        .layout = pApp->pipelineLayout,
+        .renderPass = pApp->renderPass,
+        .subpass = 0,
+        .basePipelineHandle = VK_NULL_HANDLE,//Handle for if pipeline is recreated
+        .basePipelineIndex = -1
+    };
+    
+    if (vkCreateGraphicsPipelines(pApp->device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pApp->graphicsPipeline) != VK_SUCCESS) {
+        printf("failed to create graphics pipeline!");
+    }
+    
+    vkDestroyShaderModule(pApp->device, vertexModule, NULL);
+    vkDestroyShaderModule(pApp->device, fragmentModule, NULL);
+}
+
+void createFramebuffers(Application *pApp)
+{
+    pApp->swapChainFramebuffers = malloc(pApp->imageCount * sizeof(VkFramebuffer));
+    for(int i = 0; i < pApp->imageCount; i++)
+    {
+        VkImageView attachments = pApp->swapChainImageViews[i];
+        VkFramebufferCreateInfo framebufferInfo = {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .attachmentCount = 1,
+            .pAttachments = &attachments,
+            .width = pApp->swapChainExtent.width,
+            .height = pApp->swapChainExtent.height,
+            .layers = 1
+        };
+        
+        if (vkCreateFramebuffer(pApp->device, &framebufferInfo, NULL, &pApp->swapChainFramebuffers[i]) != VK_SUCCESS) {
+                printf("Failed to create framebuffer!");
+        }
+    }
+}
+
+void createCommandPool(Application *pApp)
+{
+    QueueFamilyIndices queueFamilyIndices = findQueueFamilies(pApp->physicalDevice, pApp->surface);
+    
+    VkCommandPoolCreateInfo poolInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,//Specifies how commandbuffers are recorded and reser
+        .queueFamilyIndex = queueFamilyIndices.graphicsFamily
+    };
+    
+    if (vkCreateCommandPool(pApp->device, &poolInfo, NULL, &pApp->commandPool) != VK_SUCCESS) {
+        printf("Failed to create command pool!");
+        exit(1);
+    }
+}
+
+void createCommandBuffer(Application *pApp)
+{
+    VkCommandBufferAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = pApp->commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,//Specifies if the command buffers are primary or secondary
+        .commandBufferCount = 1
+    };
+    
+    if(vkAllocateCommandBuffers(pApp->device, &allocInfo, &pApp->commandBuffer) != VK_SUCCESS) {
+        printf("Failed to allocate command buffers!");
+        exit(1);
+    }
 }
 
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
     {
-        printf("validation layers requested, but not available");
+        printf("Validation layers requested, but not available");
         exit(1);
     }
+    
     createInstance(pApp);
     setupDebugMessenger(pApp);
     createSurface(pApp);
@@ -684,7 +974,11 @@ void initVulkan(Application *pApp)
     createLogicalDevice(pApp);
     createSwapChain(pApp);
     createImageViews(pApp);
+    createRenderPass(pApp);
     createGraphicsPipeline(pApp);
+    createFramebuffers(pApp);
+    createCommandPool(pApp);
+    createCommandBuffer(pApp);
 }
 
 void mainLoop(Application *pApp)
@@ -697,6 +991,19 @@ void mainLoop(Application *pApp)
 
 void cleanup(Application *pApp)
 {
+    vkDestroyCommandPool(pApp->device, pApp->commandPool, NULL);
+    
+    vkDestroyPipeline(pApp->device, pApp->graphicsPipeline, NULL);
+    vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
+    
+    for(int i = 0; i < pApp->imageCount; i++)
+    {
+        vkDestroyFramebuffer(pApp->device, pApp->swapChainFramebuffers[i], NULL);
+    }
+    free(pApp->swapChainImageViews);
+    
+    vkDestroyRenderPass(pApp->device, pApp->renderPass, NULL);
+    
     for(int i = 0; i < pApp->imageCount; i++)
     {
         vkDestroyImageView(pApp->device, pApp->swapChainImageViews[i], NULL);

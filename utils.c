@@ -184,25 +184,31 @@ uint32_t boundU32(uint32_t value, uint32_t lower, uint32_t upper)
     }
 }
 
-char *readFile(const char *fileName)
+size_t readFile(const char *fileName, char **buffer)
 {
     FILE *pFile = fopen(fileName, "rb");
     
     if(pFile == NULL)
     {
-        printf("Failed to open file: %s!", fileName);
+        printf("Failed to open file: %s!\n", fileName);
         exit(1);
     }
 
     size_t fileSize;
     
-    fseek(pFile, 0L, SEEK_END);
+    fseek(pFile, 0, SEEK_END);
     fileSize = ftell(pFile);
-    fseek(pFile, 0L, SEEK_SET);
+    fseek(pFile, 0, SEEK_SET);
     
-    char *buffer = malloc(fileSize * sizeof(pFile));
-    fread(buffer, fileSize, sizeof(char), pFile);
+    *buffer = malloc(fileSize);
+
+    size_t bytesRead = fread(*buffer, 1, fileSize, pFile);
+    if(fileSize != bytesRead)
+    {
+        printf("Failed to read file: %s!\nMissing %lu bytes", fileName, fileSize-bytesRead);
+        exit(1);
+    }
     fclose(pFile);
     
-    return buffer;
+    return fileSize;
 }
