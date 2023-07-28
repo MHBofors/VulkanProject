@@ -1127,6 +1127,8 @@ void mainLoop(Application *pApp)
         glfwPollEvents();
         drawFrame(pApp);
     }
+
+    vkDeviceWaitIdle(pApp->device);
 }
 
 void cleanup(Application *pApp)
