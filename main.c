@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <math.h>
 #include "utils.h"
 
 const uint32_t WIDTH = 800;
@@ -30,6 +30,30 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 #else
     const uint32_t enableCompatibilityBit = 1;
 #endif
+
+typedef struct{
+    float x;
+    float y;
+} Vector2;
+
+typedef struct{
+    float x;
+    float y;
+    float z;
+} Vector3;
+
+typedef struct{
+    Vector2 position;
+    Vector3 color;
+} Vertex;
+
+const uint32_t vertexCount = 3;
+
+Vertex vertices[vertexCount] = {
+    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+};
 
 typedef struct
 {
@@ -56,6 +80,8 @@ typedef struct
     VkSemaphore *imageAvailableSemaphores;
     VkSemaphore *renderFinishedSemaphores;
     VkFence *inFlightFences;
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
 } Application;
 
 enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
@@ -107,6 +133,10 @@ void drawFrame(Application *pApp);
 void createSyncObjects(Application *pApp);
 void recreateSwapChain(Application *pApp);
 void cleanupSwapChain(Application *pApp);
+VkVertexInputBindingDescription getBindingDescription(void);
+VkVertexInputAttributeDescription *getAttributeDescriptions(void);
+void createVertexBuffer(Application *pApp);
+uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
 void initWindow(Application *pApp)
 {
@@ -732,7 +762,7 @@ void createRenderPass(Application *pApp)
         .colorAttachmentCount = 1,
         .pColorAttachments = &colorAttachmentRef
     };
-
+    
     VkSubpassDependency dependency = {
         .srcSubpass = VK_SUBPASS_EXTERNAL,//Specifies the indices of the dependency in the dependent subpass
         .dstSubpass = 0,
@@ -741,7 +771,7 @@ void createRenderPass(Application *pApp)
         .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,//Specifies the operations waiting for the previous operations, and in which stage they occur
         .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
     };
-
+    
     VkRenderPassCreateInfo renderPassInfo = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .attachmentCount = 1,
@@ -753,7 +783,7 @@ void createRenderPass(Application *pApp)
     };
     
     
-
+    
     if (vkCreateRenderPass(pApp->device, &renderPassInfo, NULL, &pApp->renderPass) != VK_SUCCESS) {
         printf("Failed to create render pass!");
         exit(1);
@@ -795,13 +825,16 @@ void createGraphicsPipeline(Application *pApp)
         .pDynamicStates = dynamicStates
     };
     
+    VkVertexInputBindingDescription bindingDescription = getBindingDescription();
+    VkVertexInputAttributeDescription *attributeDescriptions = getAttributeDescriptions();
+    
     //Specifies the bindings and attribute descriptions
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 0,
-        .pVertexBindingDescriptions = NULL, // Optional
-        .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions = NULL
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bindingDescription, // Optional
+        .vertexAttributeDescriptionCount = 2,
+        .pVertexAttributeDescriptions = attributeDescriptions
     };
     
     //Specifies which type of geometry will be rendered
@@ -1010,6 +1043,11 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pApp->graphicsPipeline);
     
+    VkBuffer vertexBuffers[] = {pApp->vertexBuffer};
+    VkDeviceSize offsets[] = {0};
+    
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);//Parameters 2, 3 specifies the offsets and how many vertex buffers to bind. Parameters 4, 5 specifies the array of vertex buffers to write and what offset to start reading from
+    
     VkViewport viewport = {
         .x = 0.0f,
         .y = 0.0f,
@@ -1028,7 +1066,7 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
     
     vkCmdEndRenderPass(commandBuffer);
     
@@ -1079,7 +1117,7 @@ void drawFrame(Application *pApp)
     };
 
     if (vkQueueSubmit(pApp->graphicsQueue, 1, &submitInfo, pApp->inFlightFences[frameIndex]) != VK_SUCCESS) {
-        printf("failed to submit draw command buffer!");
+        printf("Failed to submit draw command buffer!");
         exit(1);
     }
 
@@ -1172,6 +1210,86 @@ void cleanupSwapChain(Application *pApp)
     free(pApp->swapChainImages);
 }
 
+VkVertexInputBindingDescription getBindingDescription(void)
+{
+    VkVertexInputBindingDescription bindingDescription = {
+        .binding = 0,//Specifies the index in the array of bindings
+        .stride = sizeof(Vertex),//Specifies the size of the binding, giving the length between the start of the binding to the next one
+        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX//Specifies whether to move to the next data entry after each vertex or each instance
+    };
+    
+    return bindingDescription;
+}
+
+VkVertexInputAttributeDescription *getAttributeDescriptions(void)
+{
+    VkVertexInputAttributeDescription *attributeDescriptions = malloc(sizeof(VkVertexInputAttributeDescription) * 2);
+    
+    attributeDescriptions[0].binding = 0;//Specifies from which binding the data comes
+    attributeDescriptions[0].location = 0;//Specifies which 'location' the data will have in the vertex shader
+    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;//Specifies the type of the data of the attribute, which uses the same enum as color formats
+    attributeDescriptions[0].offset = offsetof(Vertex, position);//Specifies how far from the start of the data to read from
+    
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, color);
+    return attributeDescriptions;
+}
+
+void createVertexBuffer(Application *pApp)
+{
+    VkBufferCreateInfo bufferInfo = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = sizeof(Vertex) * 3,
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+    
+    if(vkCreateBuffer(pApp->device, &bufferInfo, NULL, &pApp->vertexBuffer) != VK_SUCCESS){
+        printf("Failed to create vertex buffer!");
+        exit(1);
+    }
+    
+    VkMemoryRequirements memoryReq;
+    vkGetBufferMemoryRequirements(pApp->device, pApp->vertexBuffer, &memoryReq);
+    
+    VkMemoryAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = memoryReq.size,
+        .memoryTypeIndex = findMemoryType(pApp, memoryReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    };
+    
+    if(vkAllocateMemory(pApp->device, &allocInfo, NULL, &pApp->vertexBufferMemory) != VK_SUCCESS){
+        printf("Failed to allocate buffer memory");
+        exit(1);
+    }
+    
+    vkBindBufferMemory(pApp->device, pApp->vertexBuffer, pApp->vertexBufferMemory, 0);
+    
+    void* data;
+    vkMapMemory(pApp->device, pApp->vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+        memcpy(data, vertices, (size_t) bufferInfo.size);
+    vkUnmapMemory(pApp->device, pApp->vertexBufferMemory);
+}
+
+uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryPropertyFlags properties)
+{
+    VkPhysicalDeviceMemoryProperties memoryProperties;
+    vkGetPhysicalDeviceMemoryProperties(pApp->physicalDevice, &memoryProperties);
+    
+    for(uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++)
+    {
+        if(typeFilter & (1 << i) && memoryProperties.memoryTypes[i].propertyFlags & properties)
+        {
+            return i;
+        }
+    }
+    
+    printf("Failed to find suitable memory type");
+    exit(1);
+}
+
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
@@ -1191,6 +1309,7 @@ void initVulkan(Application *pApp)
     createGraphicsPipeline(pApp);
     createFramebuffers(pApp);
     createCommandPool(pApp);
+    createVertexBuffer(pApp);
     createCommandBuffer(pApp);
     createSyncObjects(pApp);
 }
@@ -1209,6 +1328,10 @@ void mainLoop(Application *pApp)
 void cleanup(Application *pApp)
 {
     cleanupSwapChain(pApp);
+    
+    vkDestroyBuffer(pApp->device, pApp->vertexBuffer, NULL);
+    
+    vkFreeMemory(pApp->device, pApp->vertexBufferMemory, NULL);
     
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(pApp->device, pApp->imageAvailableSemaphores[i], NULL);
