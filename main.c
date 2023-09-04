@@ -1,7 +1,6 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -55,6 +54,10 @@ Vertex vertices[vertexCount] = {
     {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 };
 
+const uint32_t indexCount = 6;
+
+uint16_t indices[indexCount] = {0, 1, 2, 2, 3, 0};
+
 typedef struct
 {
     GLFWwindow *window;
@@ -82,6 +85,8 @@ typedef struct
     VkFence *inFlightFences;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexBufferMemory;
 } Application;
 
 enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
@@ -135,8 +140,12 @@ void recreateSwapChain(Application *pApp);
 void cleanupSwapChain(Application *pApp);
 VkVertexInputBindingDescription getBindingDescription(void);
 VkVertexInputAttributeDescription *getAttributeDescriptions(void);
+void copyBuffer(Application *pApp, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+void createBuffer(Application *pApp, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer *buffer, VkDeviceMemory *bufferMemory);
 void createVertexBuffer(Application *pApp);
+void createIndexBuffer(Application *pApp);
 uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
 
 void initWindow(Application *pApp)
 {
@@ -1237,40 +1246,103 @@ VkVertexInputAttributeDescription *getAttributeDescriptions(void)
     return attributeDescriptions;
 }
 
-void createVertexBuffer(Application *pApp)
+void createBuffer(Application *pApp, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer *buffer, VkDeviceMemory *bufferMemory)
 {
     VkBufferCreateInfo bufferInfo = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = sizeof(Vertex) * 3,
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        .size = size,
+        .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
     
-    if(vkCreateBuffer(pApp->device, &bufferInfo, NULL, &pApp->vertexBuffer) != VK_SUCCESS){
-        printf("Failed to create vertex buffer!");
+    if(vkCreateBuffer(pApp->device, &bufferInfo, NULL, buffer) != VK_SUCCESS){
+        printf("Failed to create buffer!");
         exit(1);
     }
     
     VkMemoryRequirements memoryReq;
-    vkGetBufferMemoryRequirements(pApp->device, pApp->vertexBuffer, &memoryReq);
+    vkGetBufferMemoryRequirements(pApp->device, *buffer, &memoryReq);
     
     VkMemoryAllocateInfo allocInfo = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize = memoryReq.size,
-        .memoryTypeIndex = findMemoryType(pApp, memoryReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        .memoryTypeIndex = findMemoryType(pApp, memoryReq.memoryTypeBits, properties)
     };
     
-    if(vkAllocateMemory(pApp->device, &allocInfo, NULL, &pApp->vertexBufferMemory) != VK_SUCCESS){
+    if(vkAllocateMemory(pApp->device, &allocInfo, NULL, bufferMemory) != VK_SUCCESS){
         printf("Failed to allocate buffer memory");
         exit(1);
     }
     
-    vkBindBufferMemory(pApp->device, pApp->vertexBuffer, pApp->vertexBufferMemory, 0);
+    vkBindBufferMemory(pApp->device, *buffer, *bufferMemory, 0);
+}
+
+void copyBuffer(Application *pApp, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+{
+    VkCommandBufferAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandPool = pApp->commandPool,
+        .commandBufferCount = 1
+    };
     
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(pApp->device, &allocInfo, &commandBuffer);
+    
+    VkCommandBufferBeginInfo beginInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+    
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    
+    VkBufferCopy copyRegion = {
+        copyRegion.srcOffset = 0, // Optional
+        copyRegion.dstOffset = 0, // Optional
+        copyRegion.size = size
+    };
+    
+    vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+    
+    vkEndCommandBuffer(commandBuffer);
+    
+    VkSubmitInfo submitInfo = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &commandBuffer
+    };
+    
+    vkQueueSubmit(pApp->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(pApp->graphicsQueue);
+    
+    vkFreeCommandBuffers(pApp->device, pApp->commandPool, 1, &commandBuffer);
+}
+
+void createVertexBuffer(Application *pApp)
+{
+    VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
+    
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
+    createBuffer(pApp, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer, &stagingBufferMemory);
+
     void* data;
-    vkMapMemory(pApp->device, pApp->vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-        memcpy(data, vertices, (size_t) bufferInfo.size);
-    vkUnmapMemory(pApp->device, pApp->vertexBufferMemory);
+    vkMapMemory(pApp->device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        memcpy(data, vertices, (size_t) bufferSize);
+    vkUnmapMemory(pApp->device, stagingBufferMemory);
+
+    createBuffer(pApp, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &pApp->vertexBuffer, &pApp->vertexBufferMemory);
+
+    copyBuffer(pApp, stagingBuffer, pApp->vertexBuffer, bufferSize);
+    
+    vkDestroyBuffer(pApp->device, stagingBuffer, NULL);
+    vkFreeMemory(pApp->device, stagingBufferMemory, NULL);
+}
+
+void createIndexBuffer(Application *pApp)
+{
+    
 }
 
 uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryPropertyFlags properties)
