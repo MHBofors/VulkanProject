@@ -46,17 +46,18 @@ typedef struct{
     Vector3 color;
 } Vertex;
 
-const uint32_t vertexCount = 3;
+const uint32_t vertexCount = 4;
 
 Vertex vertices[vertexCount] = {
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
 };
 
 const uint32_t indexCount = 6;
 
-uint16_t indices[indexCount] = {0, 1, 2, 2, 3, 0};
+const uint16_t vertexIndices[indexCount] = {0, 1, 2, 2, 3, 0};
 
 typedef struct
 {
@@ -1057,6 +1058,8 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);//Parameters 2, 3 specifies the offsets and how many vertex buffers to bind. Parameters 4, 5 specifies the array of vertex buffers to write and what offset to start reading from
     
+    vkCmdBindIndexBuffer(commandBuffer, pApp->indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+    
     VkViewport viewport = {
         .x = 0.0f,
         .y = 0.0f,
@@ -1075,7 +1078,7 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     
-    vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
+    vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
     
     vkCmdEndRenderPass(commandBuffer);
     
@@ -1342,7 +1345,24 @@ void createVertexBuffer(Application *pApp)
 
 void createIndexBuffer(Application *pApp)
 {
+    VkDeviceSize bufferSize = sizeof(vertexIndices[0]) * indexCount;
     
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
+    createBuffer(pApp, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer, &stagingBufferMemory);
+
+    void* data;
+    vkMapMemory(pApp->device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        memcpy(data, vertexIndices, (size_t) bufferSize);
+    vkUnmapMemory(pApp->device, stagingBufferMemory);
+
+    createBuffer(pApp, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &pApp->indexBuffer, &pApp->indexBufferMemory);
+
+    copyBuffer(pApp, stagingBuffer, pApp->indexBuffer, bufferSize);
+    
+    vkDestroyBuffer(pApp->device, stagingBuffer, NULL);
+    vkFreeMemory(pApp->device, stagingBufferMemory, NULL);
 }
 
 uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryPropertyFlags properties)
@@ -1382,6 +1402,7 @@ void initVulkan(Application *pApp)
     createFramebuffers(pApp);
     createCommandPool(pApp);
     createVertexBuffer(pApp);
+    createIndexBuffer(pApp);
     createCommandBuffer(pApp);
     createSyncObjects(pApp);
 }
@@ -1402,8 +1423,10 @@ void cleanup(Application *pApp)
     cleanupSwapChain(pApp);
     
     vkDestroyBuffer(pApp->device, pApp->vertexBuffer, NULL);
-    
     vkFreeMemory(pApp->device, pApp->vertexBufferMemory, NULL);
+    
+    vkDestroyBuffer(pApp->device, pApp->indexBuffer, NULL);
+    vkFreeMemory(pApp->device, pApp->indexBufferMemory, NULL);
     
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(pApp->device, pApp->imageAvailableSemaphores[i], NULL);
