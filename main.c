@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "vkMath.h"
 #include "utils.h"
 
 const uint32_t WIDTH = 800;
@@ -1474,6 +1475,22 @@ void run(Application *pApp)
 
 int main(void)
 {
+    float matrix[4][4];
+    
+    vector V = {
+        .x = 1.0f,
+        .y = 10.0f,
+        .z = -2.0f
+    };
+    
+    translationMatrix(matrix, V);
+    
+    matprint(matrix);
+    
+    matmul(matrix, matrix);
+    
+    matprint(matrix);
+    
     if(enableCompatibilityBit)
     {
         printf("Compatibility bit enabled\n");
