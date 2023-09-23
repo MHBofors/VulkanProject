@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include "vkMath.h"
 #include "utils.h"
 
@@ -60,6 +61,10 @@ const uint32_t indexCount = 6;
 
 const uint16_t vertexIndices[indexCount] = {0, 1, 2, 2, 3, 0};
 
+uint32_t frameIndex = 0;
+
+clock_t startTime;
+
 typedef struct
 {
     GLFWwindow *window;
@@ -77,6 +82,7 @@ typedef struct
     VkExtent2D swapChainExtent;
     VkImageView *swapChainImageViews;
     VkRenderPass renderPass;
+    VkDescriptorSetLayout descriptorSetLayout;
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
     VkFramebuffer *swapChainFramebuffers;
@@ -89,6 +95,11 @@ typedef struct
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
+    VkBuffer *uniformBuffers;
+    VkDeviceMemory *uniformBuffersMemory;
+    void **uniformBuffersMapped;
+    VkDescriptorPool descriptorPool;
+    VkDescriptorSet *descriptorSets;
 } Application;
 
 enum queueFamilyFlagBit{GRAPHICS_FAMILY_BIT = 1, PRESENT_FAMILY_BIT = 1<<1};
@@ -106,6 +117,12 @@ typedef struct {
     uint32_t presentModeCount;
     VkPresentModeKHR *presentModes;
 } SwapChainSupportDetails;
+
+typedef struct {
+    float model[4][4];
+    float view[4][4];
+    float projection[4][4];
+} UniformBufferObject;
 
 void initWindow(Application *pApp);
 void initVulkan(Application *pApp);
@@ -130,12 +147,14 @@ VkExtent2D chooseSwapExtent(VkSurfaceCapabilitiesKHR *capabilities, GLFWwindow *
 void createSwapChain(Application *pApp);
 void createImageViews(Application *pApp);
 VkShaderModule createShaderModule(Application *pApp, char *shaderFile);
+void createDescriptorSetLayout(Application *pApp);
 void createGraphicsPipeline(Application *pApp);
 void createRenderPass(Application *pApp);
 void createFramebuffers(Application *pApp);
 void createCommandPool(Application *pApp);
 void createCommandBuffer(Application *pApp);
 void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint32_t imageIndex);
+void updateUniformBuffer(Application *pApp, uint32_t currentImage);
 void drawFrame(Application *pApp);
 void createSyncObjects(Application *pApp);
 void recreateSwapChain(Application *pApp);
@@ -144,10 +163,12 @@ VkVertexInputBindingDescription getBindingDescription(void);
 VkVertexInputAttributeDescription *getAttributeDescriptions(void);
 void copyBuffer(Application *pApp, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 void createBuffer(Application *pApp, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer *buffer, VkDeviceMemory *bufferMemory);
+uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 void createVertexBuffer(Application *pApp);
 void createIndexBuffer(Application *pApp);
-uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryPropertyFlags properties);
-
+void createUniformBuffers(Application *pApp);
+void createDescriptorPool(Application *pApp);
+void createDescriptorSets(Application *pApp);
 
 void initWindow(Application *pApp)
 {
@@ -801,6 +822,28 @@ void createRenderPass(Application *pApp)
     }
 }
 
+void createDescriptorSetLayout(Application *pApp) {
+    VkDescriptorSetLayoutBinding uboLayoutBinding = {
+        .binding = 0, //Which binding is used
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, //Type of descriptor
+        .descriptorCount = 1, //Number of value in the array
+        
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT, //Which shader stage the descriptor is used
+        .pImmutableSamplers = NULL, // - relevant to image sampling descriptors -
+    };
+    
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindings = &uboLayoutBinding
+    };
+    
+    if (vkCreateDescriptorSetLayout(pApp->device, &layoutInfo, NULL, &pApp->descriptorSetLayout) != VK_SUCCESS) {
+        printf("failed to create descriptor set layout!");
+        exit(1);
+    }
+}
+
 void createGraphicsPipeline(Application *pApp)
 {
     VkShaderModule vertexModule = createShaderModule(pApp, "shaders/vert.spv");
@@ -931,8 +974,8 @@ void createGraphicsPipeline(Application *pApp)
     
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0, // Optional
-        .pSetLayouts = NULL, // Optional
+        .setLayoutCount = 1, // Optional
+        .pSetLayouts = &pApp->descriptorSetLayout, // Optional
         .pushConstantRangeCount = 0, // Optional
         .pPushConstantRanges = NULL // Optional
     };
@@ -1054,12 +1097,7 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pApp->graphicsPipeline);
     
-    VkBuffer vertexBuffers[] = {pApp->vertexBuffer};
-    VkDeviceSize offsets[] = {0};
     
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);//Parameters 2, 3 specifies the offsets and how many vertex buffers to bind. Parameters 4, 5 specifies the array of vertex buffers to write and what offset to start reading from
-    
-    vkCmdBindIndexBuffer(commandBuffer, pApp->indexBuffer, 0, VK_INDEX_TYPE_UINT16);
     
     VkViewport viewport = {
         .x = 0.0f,
@@ -1079,6 +1117,16 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     
+    VkBuffer vertexBuffers[] = {pApp->vertexBuffer};
+    
+    VkDeviceSize offsets[] = {0};
+        
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);//Parameters 2, 3 specifies the offsets and how many vertex buffers to bind. Parameters 4, 5 specifies the array of vertex buffers to write and what offset to start reading from
+        
+    vkCmdBindIndexBuffer(commandBuffer, pApp->indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+    
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pApp->pipelineLayout, 0, 1, &pApp->descriptorSets[frameIndex], 0, NULL);
+    
     vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
     
     vkCmdEndRenderPass(commandBuffer);
@@ -1089,10 +1137,34 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, Application *pApp, uint3
     }
 }
 
+void updateUniformBuffer(Application *pApp, uint32_t currentFrame)
+{
+    clock_t currentTime = clock();
+    float dTime = (float)(currentTime - startTime)/CLOCKS_PER_SEC;
+    
+    UniformBufferObject ubo;
+    
+    vector axis = {0.0f, 0.0f, 1.0f};
+    quaternion q = q_angle_vector(dTime * M_PI_4, axis);
+
+    rotationMatrix(ubo.model, q);
+    
+    vector camera = {2.0f, 2.0f, 2.0f};
+    vector up = {0.0f, 0.0f, 1.0f};
+    vector origin = {0.0f, 0.0f, 0.0f};
+
+    cameraMatrix(ubo.view, up, camera, origin);
+
+    perspectiveMatrix(ubo.projection, M_PI_4, pApp->swapChainExtent.width/(float)pApp->swapChainExtent.height, 0.1f, 10.0f);
+    
+    
+    identityMatrix(ubo.projection);
+    
+    memcpy(pApp->uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+}
+
 void drawFrame(Application *pApp)
 {
-    uint32_t frameIndex = 0;
-    
     vkWaitForFences(pApp->device, 1, &pApp->inFlightFences[frameIndex], VK_TRUE, UINT64_MAX);
     
     uint32_t imageIndex;
@@ -1103,15 +1175,19 @@ void drawFrame(Application *pApp)
         recreateSwapChain(pApp);
         return;
     }
+    
     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
     {
         printf("Failed to acquire swap chain image!");
         exit(1);
     }
-    
+
+    updateUniformBuffer(pApp, frameIndex);
+
     vkResetFences(pApp->device, 1, &pApp->inFlightFences[frameIndex]);
     
     vkResetCommandBuffer(pApp->commandBuffers[frameIndex], 0);
+
     recordCommandBuffer(pApp->commandBuffers[frameIndex], pApp, imageIndex);
 
     VkSemaphore waitSemaphores[] = {pApp->imageAvailableSemaphores[frameIndex]};
@@ -1133,9 +1209,10 @@ void drawFrame(Application *pApp)
         printf("Failed to submit draw command buffer!");
         exit(1);
     }
-
+    
     VkSwapchainKHR swapChains[] = {pApp->swapChain};
     
+
     VkPresentInfoKHR presentInfo = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,//Specifies which semaphores to wait for before presentation can happen
@@ -1152,12 +1229,13 @@ void drawFrame(Application *pApp)
         recreateSwapChain(pApp);
         return;
     }
+    
     else if (result != VK_SUCCESS)
     {
         printf("Failed to present swap chain image");
         exit(1);
     }
-    
+
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
@@ -1383,6 +1461,90 @@ uint32_t findMemoryType(Application *pApp, uint32_t typeFilter, VkMemoryProperty
     exit(1);
 }
 
+void createUniformBuffers(Application *pApp)
+{
+    VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+    
+    pApp->uniformBuffers = malloc(sizeof(VkBuffer) * MAX_FRAMES_IN_FLIGHT);
+    pApp->uniformBuffersMemory = malloc(sizeof(VkDeviceMemory) * MAX_FRAMES_IN_FLIGHT);
+    pApp->uniformBuffersMapped = malloc(sizeof(void*) * MAX_FRAMES_IN_FLIGHT);
+    
+    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        createBuffer(pApp, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &pApp->uniformBuffers[i], &pApp->uniformBuffersMemory[i]);
+        
+        vkMapMemory(pApp->device, pApp->uniformBuffersMemory[i], 0, bufferSize, 0, &pApp->uniformBuffersMapped[i]);
+    }
+}
+
+void createDescriptorPool(Application *pApp)
+{
+    VkDescriptorPoolSize poolSize = {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT,
+    };
+    
+    VkDescriptorPoolCreateInfo poolInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .poolSizeCount = 1,
+        .pPoolSizes = &poolSize,
+        
+        .maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT
+    };
+    
+    if(vkCreateDescriptorPool(pApp->device, &poolInfo, NULL, &pApp->descriptorPool) != VK_SUCCESS) {
+        printf("Failed to create descriptor pool!");
+        exit(1);
+    }
+}
+
+void createDescriptorSets(Application *pApp)
+{
+    VkDescriptorSetLayout *layouts = malloc(sizeof(VkDescriptorSetLayout) * MAX_FRAMES_IN_FLIGHT);
+    for(uint8_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        layouts[i] = pApp->descriptorSetLayout;
+    }
+    
+    VkDescriptorSetAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = pApp->descriptorPool,
+        .descriptorSetCount = (uint32_t)(MAX_FRAMES_IN_FLIGHT),
+        .pSetLayouts = layouts
+    };
+    
+    pApp->descriptorSets = malloc(sizeof(VkDescriptorSet) * MAX_FRAMES_IN_FLIGHT);
+    
+    if(vkAllocateDescriptorSets(pApp->device, &allocInfo, pApp->descriptorSets) != VK_SUCCESS) {
+        printf("Failed to create descriptor sets!");
+        exit(1);
+    }
+    
+    for(uint8_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        VkDescriptorBufferInfo bufferInfo = {
+            .buffer = pApp->uniformBuffers[i],
+            .offset = 0,
+            .range = sizeof(UniformBufferObject)
+        };
+        
+        VkWriteDescriptorSet descriptorWrite = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = pApp->descriptorSets[i],
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            
+            .pBufferInfo = &bufferInfo,
+            .pImageInfo = NULL,
+            .pTexelBufferView = NULL
+        };
+        
+        vkUpdateDescriptorSets(pApp->device, 1, &descriptorWrite, 0, NULL);
+    }
+    
+    free(layouts);
+}
+
 void initVulkan(Application *pApp)
 {
     if(enableValidationLayers && !checkValidationLayerSupport())
@@ -1390,7 +1552,6 @@ void initVulkan(Application *pApp)
         printf("Validation layers requested, but not available");
         exit(1);
     }
-    
     createInstance(pApp);
     setupDebugMessenger(pApp);
     createSurface(pApp);
@@ -1399,11 +1560,15 @@ void initVulkan(Application *pApp)
     createSwapChain(pApp);
     createImageViews(pApp);
     createRenderPass(pApp);
+    createDescriptorSetLayout(pApp);
     createGraphicsPipeline(pApp);
     createFramebuffers(pApp);
     createCommandPool(pApp);
     createVertexBuffer(pApp);
     createIndexBuffer(pApp);
+    createUniformBuffers(pApp);
+    createDescriptorPool(pApp);
+    createDescriptorSets(pApp);
     createCommandBuffer(pApp);
     createSyncObjects(pApp);
 }
@@ -1422,6 +1587,21 @@ void mainLoop(Application *pApp)
 void cleanup(Application *pApp)
 {
     cleanupSwapChain(pApp);
+    
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        vkDestroyBuffer(pApp->device, pApp->uniformBuffers[i], NULL);
+        vkFreeMemory(pApp->device, pApp->uniformBuffersMemory[i], NULL);
+    }
+    
+    free(pApp->uniformBuffers);
+    free(pApp->uniformBuffersMemory);
+    free(pApp->uniformBuffersMapped);
+    
+    vkDestroyDescriptorPool(pApp->device, pApp->descriptorPool, NULL);
+    
+    vkDestroyDescriptorSetLayout(pApp->device, pApp->descriptorSetLayout, NULL);
+    
+    free(pApp->descriptorSets);
     
     vkDestroyBuffer(pApp->device, pApp->vertexBuffer, NULL);
     vkFreeMemory(pApp->device, pApp->vertexBufferMemory, NULL);
@@ -1469,27 +1649,14 @@ void run(Application *pApp)
 {
     initWindow(pApp);
     initVulkan(pApp);
+    printf("Initialisation successful\n");
     mainLoop(pApp);
     cleanup(pApp);
 }
 
 int main(void)
 {
-    float matrix[4][4];
-    
-    vector V = {
-        .x = 1.0f,
-        .y = 10.0f,
-        .z = -2.0f
-    };
-    
-    translationMatrix(matrix, V);
-    
-    matprint(matrix);
-    
-    matmul(matrix, matrix);
-    
-    matprint(matrix);
+    startTime = clock();
     
     if(enableCompatibilityBit)
     {

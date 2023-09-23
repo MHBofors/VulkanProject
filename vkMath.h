@@ -35,6 +35,8 @@ vector v_scale(float a, vector V);
 
 vector v_sub(vector U, vector V);
 
+vector crossproduct(vector U, vector V);
+
 quaternion q_conjugate(quaternion p);
 
 float q_norm(quaternion q);
@@ -49,15 +51,19 @@ void matcpy(float source[4][4], float destination[4][4]);
 
 void matmul(float A[4][4], float B[4][4]);
 
+void identityMatrix(float matrix[4][4]);
+
 void translationMatrix(float matrix[4][4], vector V);
 
 void scalingMatrix(float matrix[4][4], vector V);
 
 void projectionMatrix(float matrix[4][4], vector V);
 
-void cameraMatrix(float matrix[4][4], vector V);
-
 void rotationMatrix(float matrix[4][4], quaternion q);
+
+void cameraMatrix(float matrix[4][4], vector up, vector position_camera, vector position_object);
+
+void perspectiveMatrix(float matrix[4][4], float fov, float aspect_ratio, float near, float far);
 
 void matprint(float matrix[4][4]);
 

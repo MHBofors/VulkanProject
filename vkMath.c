@@ -44,6 +44,14 @@ vector v_sub(vector U, vector V)
     return U;
 }
 
+vector crossproduct(vector U, vector V)
+{
+    vector result = {.x = U.y*V.z - U.z*V.y,
+                     .y = U.z*V.x - U.x*V.z,
+                     .z = U.x*V.y - U.y*V.x};
+    return result;
+}
+
 quaternion q_conjugate(quaternion q)
 {
     q.u *= -1;
@@ -170,6 +178,20 @@ void matmul(float A[4][4], float B[4][4]) {
     matcpy(result, B);
 }
 
+void identityMatrix(float matrix[4][4])
+{
+    float identity[4][4] = {
+        {1.0f, 0.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f, 1.0f}
+    };
+    
+    matcpy(identity, matrix);
+    
+    return;
+}
+
 void translationMatrix(float matrix[4][4], vector V)
 {
     float translation[4][4] = {
@@ -210,6 +232,42 @@ void rotationMatrix(float matrix[4][4], quaternion q)
     matcpy(rotation, matrix);
     
     return;
+}
+
+void cameraMatrix(float matrix[4][4], vector up, vector position_camera, vector position_object)
+{
+    vector Z = normalise(v_sub(position_camera, position_object));
+    
+    vector Y = normalise(crossproduct(up, Z));
+    
+    vector X = crossproduct(Z, Y);
+    
+    float camera[4][4] = {
+        {X.x               , X.y              , X.z              , 0},
+        {Y.x               , Y.y              , Y.z              , 0},
+        {Z.x               , Z.y              , Z.z              , 0},
+        {position_camera.x , position_camera.y, position_camera.z, 1}
+    };//For coordinate system where x is width, y is height, and z is depth
+    
+    matcpy(camera, matrix);
+    
+    return;
+}
+
+void perspectiveMatrix(float matrix[4][4], float fov, float aspect_ratio, float near, float far) {
+    float tan_half_angle = tan(fov/2);
+    
+    float A = -(near + far)/(near - far);
+    float B = 2*(near*far)/(near - far);
+    
+    float camera[4][4] = {
+        {1/(aspect_ratio*tan_half_angle), 0.0f              , 0.0f, 0.0f},
+        {0.0f                           , 1/(tan_half_angle), 0.0f, 0.0f},
+        {0.0f                           , 0.0f              ,    A,    B},
+        {0.0f                           , 0.0f              , 1.0f, 0.0f}
+    };
+    
+    matcpy(camera, matrix);
 }
 
 void matprint(float matrix[4][4]) {
