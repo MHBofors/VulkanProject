@@ -929,7 +929,7 @@ void createGraphicsPipeline(Application *pApp)
         .polygonMode = VK_POLYGON_MODE_FILL,//Specifies how fragments are generated for geometry
         .lineWidth = 1.0f,
         .cullMode = VK_CULL_MODE_BACK_BIT,//Specifies which type of face culling to use
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,//Specifies the vertex order for faces to be considered front-facing
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,//Specifies the vertex order for faces to be considered front-facing
         .depthBiasEnable = VK_FALSE,//If enabled, can add depth values by adding a constant, or biasing them based on fragment slope
         .depthBiasConstantFactor = 0.0f, // Optional
         .depthBiasClamp = 0.0f, // Optional
@@ -1145,20 +1145,19 @@ void updateUniformBuffer(Application *pApp, uint32_t currentFrame)
     UniformBufferObject ubo;
     
     vector axis = {0.0f, 0.0f, 1.0f};
-    quaternion q = q_angle_vector(dTime * M_PI_4, axis);
 
-    rotationMatrix(ubo.model, q);
+    rotationMatrix(ubo.model, dTime * M_PI_4, axis);
     
     vector camera = {2.0f, 2.0f, 2.0f};
     vector up = {0.0f, 0.0f, 1.0f};
     vector origin = {0.0f, 0.0f, 0.0f};
 
-    cameraMatrix(ubo.view, up, camera, origin);
+    
+    cameraMatrix(ubo.view, camera, origin, up);
 
     perspectiveMatrix(ubo.projection, M_PI_4, pApp->swapChainExtent.width/(float)pApp->swapChainExtent.height, 0.1f, 10.0f);
     
-    
-    identityMatrix(ubo.projection);
+    vector v = {cos(10*dTime * M_PI_4),sin(10*dTime * M_PI_4),0.0f};
     
     memcpy(pApp->uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 }
@@ -1657,6 +1656,42 @@ void run(Application *pApp)
 int main(void)
 {
     startTime = clock();
+    
+    float model[4][4];
+    float view[4][4];
+    float projection[4][4];
+    
+    float d = 1.0f;
+    
+    float v[4][4] = {
+        {-0.5f, -0.5f, 0.0f, 1.0f},
+        {0.5f, -0.5f, 0.0f, 1.0f},
+        {0.5f, 0.5f, 0.0f, 1.0f},
+        {-0.5f, 0.5f, 0.0f, 1.0f}
+    };
+    
+    vector axis = {0.0f, 0.0f, 1.0f};
+    rotationMatrix(model, 0, axis);
+    cameraMatrix(view, (vector){2.0f, 2.0f, 2.0f}, (vector){0.0f, 0.0f, 0.0f}, (vector){0.0f, 0.0f, 1.0f});
+    perspectiveMatrix(projection, M_PI_4, 1.5f, 0.1f, 10.0f);
+    
+    /*
+    transform(model, v);
+    transform(view, v);
+    transform(projection, v);
+    */
+    
+    for(int i = 0; i < 4; i++)
+    {
+        transform(model, v[i]);
+        transform(view, v[i]);
+        transform(projection, v[i]);
+        printf("<");
+        for(int j = 0; j < 4; j++){
+            printf(" %f ",v[i][j]/v[i][3]);
+        }
+        printf(">\n");
+    }
     
     if(enableCompatibilityBit)
     {
