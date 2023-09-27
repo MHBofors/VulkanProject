@@ -415,10 +415,10 @@ void cameraMatrixOld(float matrix[4][4], vector position_camera, vector position
     matmul(translation, transition);
     
     float flip[4][4] = {
-        {1,  0,  0, 0},
-        {0, -1,  0, 0},
+        {1,  0, 0, 0},
+        {0, -1, 0, 0},
         {0,  0, 1, 0},
-        {0,  0,  0, 1}
+        {0,  0, 0, 1}
     };
     
     matmul(flip, translation);
@@ -426,7 +426,6 @@ void cameraMatrixOld(float matrix[4][4], vector position_camera, vector position
     //translation[1][1] *= -1;
     
     matcpy(translation, matrix);
-    
     return;
 }
 

@@ -9,6 +9,12 @@
 #include "vkMath.h"
 #include "utils.h"
 
+# define M_PI_2		1.57079632679489661923	/* pi/2 */
+# define M_PI_4		0.78539816339744830962	/* pi/4 */
+
+#define indexC 6
+#define vertexC 4
+
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
@@ -48,18 +54,18 @@ typedef struct{
     Vector3 color;
 } Vertex;
 
-const uint32_t vertexCount = 4;
+const uint32_t vertexCount = vertexC;
 
-Vertex vertices[vertexCount] = {
+Vertex vertices[vertexC] = {
     {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
     {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
     {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
     {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
 };
 
-const uint32_t indexCount = 6;
+const uint32_t indexCount = indexC;
 
-const uint16_t vertexIndices[indexCount] = {0, 1, 2, 2, 3, 0};
+const uint16_t vertexIndices[indexC] = {0, 1, 2, 2, 3, 0};
 
 uint32_t frameIndex = 0;
 
@@ -1150,10 +1156,10 @@ void updateUniformBuffer(Application *pApp, uint32_t currentFrame)
 
     rotationMatrix(ubo.model, dTime * M_PI_4, axis);
     
-    float d = 2.0f;
+    float d = 5*(2.0f-cos(dTime))/2 + cos(dTime)/2;
     
     vector camera = {d, d, d};
-    vector up = {0.0f, 1.0f, 0.0f};
+    vector up = {0.0f, 0.0f, 1.0f};
     vector object = {0.0f, 0.0f, 0.0f};
 
     vector basis[3];
@@ -1166,12 +1172,8 @@ void updateUniformBuffer(Application *pApp, uint32_t currentFrame)
 
     float r = pApp->swapChainExtent.width/((float) pApp->swapChainExtent.height);
     
-    perspectiveMatrix(ubo.projection, M_PI_4, r, 0.1f, 10.0f);
-    
-    matmul(ubo.projection, ubo.view);
-    
-    identityMatrix(ubo.projection);
-    
+    perspectiveMatrix(ubo.projection, M_PI_4/2, r, 0.1f, 20.0f);
+
     memcpy(pApp->uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 }
 
