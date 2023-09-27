@@ -54,24 +54,40 @@ vector crossproduct(vector U, vector V)
 
 quaternion q_conjugate(quaternion q)
 {
-    q.u *= -1;
-    q.v *= -1;
-    q.w *= -1;
+    q.i *= -1;
+    q.j *= -1;
+    q.k *= -1;
     return q;
 }
 
 float q_norm(quaternion q)
 {
-    return sqrt(q.a*q.a + q.u*q.u + q.v*q.v + q.w*q.w);
+    return sqrt(q.r*q.r + q.i*q.i + q.j*q.j + q.k*q.k);
+}
+
+quaternion q_normalise(quaternion q)
+{
+    float norm = q_norm(q);
+    if(norm == 0)
+    {
+        return q;
+    }
+    
+    q.r /= norm;
+    q.i /= norm;
+    q.j /= norm;
+    q.k /= norm;
+    
+    return q;
 }
 
 quaternion q_mult(quaternion p, quaternion q)
 {
     quaternion r = {
-        .a = p.a*q.a - p.u*q.u - p.v*q.v - p.w*q.w,
-        .u = p.a*q.u + p.u*q.a + p.v*q.w - p.w*q.v,
-        .v = p.a*q.v - p.u*q.w + p.v*q.a + p.w*q.u,
-        .w = p.a*q.w + p.u*q.v - p.v*q.u + p.w*q.a
+        .r = p.r*q.r - p.i*q.i - p.j*q.j - p.k*q.k,
+        .i = p.r*q.i + p.i*q.r + p.j*q.k - p.k*q.j,
+        .j = p.r*q.j - p.i*q.k + p.j*q.r + p.k*q.i,
+        .k = p.r*q.k + p.i*q.j - p.j*q.i + p.k*q.r
     };
     return r;
 }
@@ -86,17 +102,13 @@ quaternion q_angle_vector(float phi, vector V)
         exit(1);
     }
     
-    vector V_normalised = {
-        .x = V.x/norm_V,
-        .y = V.y/norm_V,
-        .z = V.z/norm_V
-    };
+    vector V_normalised = normalise(V);
     
     quaternion q = {
-        .a = c,
-        .u = s * V_normalised.x,
-        .v = s * V_normalised.y,
-        .w = s * V_normalised.z
+        .r = c,
+        .i = s * V_normalised.x,
+        .j = s * V_normalised.y,
+        .k = s * V_normalised.z
     };
     return q;
 }
@@ -126,10 +138,10 @@ quaternion q_vector_vector(vector U, vector V)
         vector axis = crossproduct(U, W);
         
         quaternion rotation = {
-            .a = 0,
-            .u = axis.x,
-            .v = axis.y,
-            .w = axis.z
+            .r = 0,
+            .i = axis.x,
+            .j = axis.y,
+            .k = axis.z
         };
         
         return rotation;
@@ -142,10 +154,10 @@ quaternion q_vector_vector(vector U, vector V)
     float B = sqrt(2*(1 - cos_phi));
     
     quaternion rotation = {
-        .a = A * 0.5f,
-        .u = axis.x * B * 0.5f,
-        .v = axis.y * B * 0.5f,
-        .w = axis.z * B * 0.5f
+        .r = A * 0.5f,
+        .i = axis.x * B * 0.5f,
+        .j = axis.y * B * 0.5f,
+        .k = axis.z * B * 0.5f
     };
     
     return rotation;
@@ -245,25 +257,27 @@ void translationMatrix(float matrix[4][4], vector V)
 
 void scalingMatrix(float matrix[4][4], vector V)
 {
-    float translation[4][4] = {
+    float scaling[4][4] = {
         {V.x, 0, 0, 0},
         {0, V.y, 0, 0},
         {0, 0, V.z, 0},
         {0, 0, 0,   1}
     };
     
-    matcpy(translation, matrix);
+    matcpy(scaling, matrix);
     
     return;
 }
 
+
 void quaternionMatrix(float matrix[4][4], quaternion q)
 {
+    q = q_normalise(q);
     float rotation[4][4] = {
-        {1 - 2*(q.v*q.v + q.w*q.w), 2*(q.u*q.v + q.w*q.a), 2*(q.u*q.w-q.v*q.a), 0},
-        {2*(q.u*q.v-q.w*q.a), 1 - 2*(q.u*q.u + q.w*q.w), 2*(q.v*q.w + q.u*q.a), 0},
-        {2*(q.u*q.w + q.u*q.a), 2*(q.v*q.w-q.u*q.a), 1 - 2*(q.v*q.v + q.v*q.v), 0},
-        {0                        , 0                    , 0                  , 1}
+        {1 - 2*(q.j*q.j + q.k*q.k), 2*(q.i*q.j - q.k*q.r)    , 2*(q.i*q.k + q.j*q.r)    , 0},
+        {2*(q.i*q.j + q.k*q.r)    , 1 - 2*(q.i*q.i + q.k*q.k), 2*(q.j*q.k - q.i*q.r)    , 0},
+        {2*(q.i*q.k - q.j*q.r)    , 2*(q.j*q.k + q.i*q.r)    , 1 - 2*(q.i*q.i + q.j*q.j), 0},
+        {0                        , 0                        , 0                        , 1}
     };
     
     matcpy(rotation, matrix);
@@ -287,34 +301,52 @@ void vectorVectorMatrix(float matrix[4][4], vector U, vector V)
     return;
 }
 
-void cameraTransform(float matrix[4][4], vector eye, vector eye_basis[3])
+void cameraTransform(float matrix[4][4], vector eye_basis[3], vector eye, vector object)
 {
+    vector depth = normalise(v_sub(object, eye));
+    
+    //float transition[4][4];
+    
+    //vectorVectorMatrix(transition, (vector){0, 0, 1}, depth);
+    
+    
     float translation[4][4] = {
-        {1, 0, 0, eye.x},
-        {0, 1, 0, eye.y},
-        {0, 0, 1, eye.z},
-        {0, 0, 0,   1}
+        {1, 0, 0, -eye.x},
+        {0, 1, 0, -eye.y},
+        {0, 0, 1, -eye.z},
+        {0, 0, 0,      1}
     };
     
     
     
     float transition[4][4] = {
-        {eye_basis[0].x, eye_basis[0].y, eye_basis[0].z, 0},
-        {eye_basis[1].x, eye_basis[1].y, eye_basis[1].z, 0},
-        {eye_basis[2].x, eye_basis[2].y, eye_basis[2].z, 0},
+        {eye_basis[0].x, eye_basis[1].x, eye_basis[2].x, 0},
+        {eye_basis[0].y, eye_basis[1].y, eye_basis[2].y, 0},
+        {eye_basis[0].z, eye_basis[1].z, eye_basis[2].z, 0},
         {0             , 0             , 0             , 1}
     };
     
-    matmul(translation, transition);
-    
     transposeMatrix(transition);
     
-    matcpy(transition, matrix);
+    matmul(transition, translation);
+    
+    matcpy(translation, matrix);
     
     return;
 }
 
-void cameraMatrix(float matrix[4][4], vector position_camera, vector position_object, vector up)
+void cameraMatrix(float matrix[4][4], vector eye, vector object, vector up)
+{
+    vector Z = normalise(v_sub(object, eye));
+    vector X = normalise(crossproduct(up, Z));
+    vector Y = crossproduct(Z, X);
+    
+    vector basis[3] = {X, Y, Z};
+    
+    cameraTransform(matrix, basis, eye, object);
+}
+
+void cameraMatrixOld(float matrix[4][4], vector position_camera, vector position_object, vector up)
 {
     //vector Z = normalise(v_sub(position_camera, position_object));
     
@@ -340,7 +372,9 @@ void cameraMatrix(float matrix[4][4], vector position_camera, vector position_ob
     Z.x = z[0]; Z.x = z[1]; Z.x = z[2];
     */
     
-    vector Z = normalise(v_sub(position_camera, position_object));
+    vector T = v_sub(position_object, position_camera);
+    
+    vector Z = normalise(v_sub(position_object, position_camera));
     
     vector X = normalise(crossproduct(up, Z));
     
@@ -352,7 +386,7 @@ void cameraMatrix(float matrix[4][4], vector position_camera, vector position_ob
         {Z.x               , Z.y              , Z.z              , 0},
         {position_camera.x , position_camera.y, position_camera.z, 1}
     };//For coordinate system where x is width, y is height, and z is depth
-    */
+    
     
     float transition[4][4] = {
         {X.x, X.y, X.z, 0},
@@ -360,6 +394,16 @@ void cameraMatrix(float matrix[4][4], vector position_camera, vector position_ob
         {Z.x, Z.y, Z.z, 0},
         {0  , 0  , 0  , 1}
     };
+    */
+    
+    float transition[4][4] = {
+        {X.x, Y.x, Z.x, 0},
+        {X.y, Y.y, Z.y, 0},
+        {X.z, Y.z, Z.z, 0},
+        {0  , 0  , 0  , 1}
+    };
+    
+    //transposeMatrix(transition);
     
     float translation[4][4] = {
         {1, 0, 0, -position_camera.x},
@@ -368,9 +412,18 @@ void cameraMatrix(float matrix[4][4], vector position_camera, vector position_ob
         {0, 0, 0, 1                 }
     };
     
+    matmul(translation, transition);
     
-    matmul(transition, translation);
-    //transposeMatrix(camera);
+    float flip[4][4] = {
+        {1,  0,  0, 0},
+        {0, -1,  0, 0},
+        {0,  0, 1, 0},
+        {0,  0,  0, 1}
+    };
+    
+    matmul(flip, translation);
+    
+    //translation[1][1] *= -1;
     
     matcpy(translation, matrix);
     
@@ -379,15 +432,16 @@ void cameraMatrix(float matrix[4][4], vector position_camera, vector position_ob
 
 void perspectiveMatrix(float matrix[4][4], float fov, float aspect_ratio, float near, float far) {
     float tan_half_angle = tan(fov/2);
+    float phi = 1/tan_half_angle;
     
     float A = far/(far - near);
     float B = -(near*far)/(far - near);
     
     float camera[4][4] = {
-        {1/(aspect_ratio*tan_half_angle),  0.0f               ,  0.0f, 0.0f},
-        {0.0f                           , -1/(tan_half_angle),  0.0f, 0.0f},
-        {0.0f                           ,  0.0f               , -A   , B   },
-        {0.0f                           ,  0.0f               , -1.0f, 0.0f}
+        {phi/aspect_ratio,  0.0f              ,  0.0f, 0.0f},
+        {0.0f                           ,  phi,  0.0f, 0.0f},
+        {0.0f                           ,  0.0f              ,  A   , B   },
+        {0.0f                           ,  0.0f              ,  1.0f, 0.0f}
     };
     
     matcpy(camera, matrix);

@@ -19,10 +19,10 @@ typedef struct vec3 {
 } vector;
 
 typedef struct Quaternion {
-    float a;
-    float u;
-    float v;
-    float w;
+    float r;
+    float i;
+    float j;
+    float k;
 } quaternion;
 
 float dot(vector U, vector V);
@@ -67,9 +67,11 @@ void quaternionMatrix(float matrix[4][4], quaternion q);
 
 void rotationMatrix(float matrix[4][4], float angle, vector axis);
 
-void cameraTransform(float matrix[4][4], vector eye, vector eye_basis[3]);
+void cameraTransform(float matrix[4][4], vector eye_basis[3], vector eye, vector object);
 
-void cameraMatrix(float matrix[4][4], vector position_camera, vector position_object, vector up);
+void cameraMatrix(float matrix[4][4], vector eye, vector object, vector up);
+
+void cameraMatrixOld(float matrix[4][4], vector position_camera, vector position_object, vector up);
 
 void perspectiveMatrix(float matrix[4][4], float fov, float aspect_ratio, float near, float far);
 
