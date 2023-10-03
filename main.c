@@ -9,8 +9,10 @@
 #include "vkMath.h"
 #include "utils.h"
 
+#ifndef M_PI_2
 # define M_PI_2		1.57079632679489661923	/* pi/2 */
 # define M_PI_4		0.78539816339744830962	/* pi/4 */
+#endif
 
 #define indexC 6
 #define vertexC 4
@@ -1154,25 +1156,28 @@ void updateUniformBuffer(Application *pApp, uint32_t currentFrame)
     
     vector axis = {0.0f, 0.0f, 1.0f};
 
-    rotationMatrix(ubo.model, dTime * M_PI_4, axis);
+    rotationMatrix(ubo.model, dTime * 2*M_PI, axis);
     
-    float d = 5*(2.0f-cos(dTime))/2 + cos(dTime)/2;
+    vector new_axis = {cos(dTime), sin(dTime), 0};
+    
+    float rot[4][4];
+    rotationMatrix(rot, M_PI_4, new_axis);
+    
+    matmul(rot, ubo.model);
+    
+    //matcpy(rot, ubo.model);
+    
+    float d = 2.0f;
     
     vector camera = {d, d, d};
     vector up = {0.0f, 0.0f, 1.0f};
     vector object = {0.0f, 0.0f, 0.0f};
-
-    vector basis[3];
-    
-    basis[2] = normalise(v_sub(object, camera));
-    basis[0] = normalise(crossproduct(up, basis[2]));
-    basis[1] = normalise(crossproduct(basis[2], basis[0]));
     
     cameraMatrix(ubo.view, camera, object, up);
 
     float r = pApp->swapChainExtent.width/((float) pApp->swapChainExtent.height);
     
-    perspectiveMatrix(ubo.projection, M_PI_4/2, r, 0.1f, 20.0f);
+    perspectiveMatrix(ubo.projection, M_PI_2, r, 0.1f, 10.0f);
 
     memcpy(pApp->uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 }
@@ -1635,14 +1640,9 @@ void cleanup(Application *pApp)
     
     vkDestroyCommandPool(pApp->device, pApp->commandPool, NULL);
     
-    
-    
     vkDestroyPipeline(pApp->device, pApp->graphicsPipeline, NULL);
     vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
-    
     vkDestroyRenderPass(pApp->device, pApp->renderPass, NULL);
-    
-    
     
     vkDestroyDevice(pApp->device, NULL);
 
@@ -1663,7 +1663,6 @@ void run(Application *pApp)
 {
     initWindow(pApp);
     initVulkan(pApp);
-    printf("Initialisation successful\n");
     mainLoop(pApp);
     cleanup(pApp);
 }
@@ -1671,52 +1670,7 @@ void run(Application *pApp)
 int main(void)
 {
     startTime = clock();
-    
-    float model[4][4];
-    float view[4][4];
-    float projection[4][4];
-    
-    float d = 0.0f;
-    
-    float v[5][4] = {
-        {d, d, d, 1.0f},
-        {-0.5f, -0.5f, 0.0f, 1.0f},
-        {0.5f, -0.5f, 0.0f, 1.0f},
-        {0.5f, 0.5f, 0.0f, 1.0f},
-        {-0.5f, 0.5f, 0.0f, 1.0f}
-    };
-    
-    vector camera = {2.0f, 2.0f, 2.0f};
-    vector object = {0.0f, 0.0f, 0.0f};
-    vector up = {0.0f, 0.0f, 1.0f};
-    
-    float angle = M_PI_4;
-    
-    vector axis = {0.0f, 0.0f, 1.0f};
-    rotationMatrix(model, angle, axis);
-    cameraMatrix(view, camera, object, up);
-    perspectiveMatrix(projection, M_PI_4, 1.33f, 0.5f, 5.0f);
-    
-    /*
-    transform(model, v);
-    transform(view, v);
-    transform(projection, v);
-    */
 
-    for(int i = 0; i < 5; i++)
-    {
-        transform(model, v[i]);
-        transform(view, v[i]);
-        transform(projection, v[i]);
-        printf("<");
-        for(int j = 0; j < 4; j++){
-            printf(" %f ",v[i][j]/v[i][3]);
-        }
-        printf(">\n");
-    }
-    
-    
-    
     if(enableCompatibilityBit)
     {
         printf("Compatibility bit enabled\n");

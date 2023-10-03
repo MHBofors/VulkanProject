@@ -303,13 +303,6 @@ void vectorVectorMatrix(float matrix[4][4], vector U, vector V)
 
 void cameraTransform(float matrix[4][4], vector eye_basis[3], vector eye, vector object)
 {
-    vector depth = normalise(v_sub(object, eye));
-    
-    //float transition[4][4];
-    
-    //vectorVectorMatrix(transition, (vector){0, 0, 1}, depth);
-    
-    
     float translation[4][4] = {
         {1, 0, 0, -eye.x},
         {0, 1, 0, -eye.y},
@@ -318,7 +311,7 @@ void cameraTransform(float matrix[4][4], vector eye_basis[3], vector eye, vector
     };
     
     
-    
+    /*
     float transition[4][4] = {
         {eye_basis[0].x, eye_basis[1].x, eye_basis[2].x, 0},
         {eye_basis[0].y, eye_basis[1].y, eye_basis[2].y, 0},
@@ -327,6 +320,16 @@ void cameraTransform(float matrix[4][4], vector eye_basis[3], vector eye, vector
     };
     
     transposeMatrix(transition);
+     
+    This is essentially what matrix below does
+    */
+    
+    float transition[4][4] = {
+        {eye_basis[0].x, eye_basis[0].y, eye_basis[0].z, 0},
+        {eye_basis[1].x, eye_basis[1].y, eye_basis[1].z, 0},
+        {eye_basis[2].x, eye_basis[2].y, eye_basis[2].z, 0},
+        {0             , 0             , 0             , 1}
+    };
     
     matmul(transition, translation);
     
@@ -338,7 +341,7 @@ void cameraTransform(float matrix[4][4], vector eye_basis[3], vector eye, vector
 void cameraMatrix(float matrix[4][4], vector eye, vector object, vector up)
 {
     vector Z = normalise(v_sub(object, eye));
-    vector X = normalise(crossproduct(up, Z));
+    vector X = normalise(crossproduct(Z, up));
     vector Y = crossproduct(Z, X);
     
     vector basis[3] = {X, Y, Z};
@@ -437,10 +440,10 @@ void perspectiveMatrix(float matrix[4][4], float fov, float aspect_ratio, float 
     float B = -(near*far)/(far - near);
     
     float camera[4][4] = {
-        {phi/aspect_ratio,  0.0f              ,  0.0f, 0.0f},
-        {0.0f                           ,  phi,  0.0f, 0.0f},
-        {0.0f                           ,  0.0f              ,  A   , B   },
-        {0.0f                           ,  0.0f              ,  1.0f, 0.0f}
+        {phi/aspect_ratio, 0.0f, 0.0f, 0.0f},
+        {0.0f            , phi , 0.0f, 0.0f},
+        {0.0f            , 0.0f, A   , B   },
+        {0.0f            , 0.0f, 1.0f, 0.0f}
     };
     
     matcpy(camera, matrix);
